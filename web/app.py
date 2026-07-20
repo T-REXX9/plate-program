@@ -287,14 +287,25 @@ def reader_complete_command(command_id: int):
     requested_status = request.form.get("status", "completed")
     status = requested_status if requested_status in {"completed", "failed"} else "failed"
     message = request.form.get("message", "")[:500] or None
+    timings = []
+    for field in ("frames_ms", "yolo_ms", "ocr_ms", "server_ms", "total_ms"):
+        try:
+            value = int(request.form.get(field, ""))
+            timings.append(min(600_000, max(0, value)))
+        except (TypeError, ValueError):
+            timings.append(None)
     connection = get_db()
     cursor = connection.execute(
         """
         UPDATE reader_commands
-        SET status = ?, completed_at = CURRENT_TIMESTAMP, result_message = ?
-        WHERE id = ? AND status IN ('pending', 'active')
+        SET status = ?, completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+            result_message = ?,
+            frames_ms = COALESCE(?, frames_ms), yolo_ms = COALESCE(?, yolo_ms),
+            ocr_ms = COALESCE(?, ocr_ms), server_ms = COALESCE(?, server_ms),
+            total_ms = COALESCE(?, total_ms)
+        WHERE id = ?
         """,
-        (status, message, command_id),
+        (status, message, *timings, command_id),
     )
     connection.execute(
         """
@@ -562,6 +573,15 @@ def load_dashboard_state() -> dict[str, Any]:
         LIMIT 1
         """
     ).fetchone()
+    latest_timing = connection.execute(
+        """
+        SELECT frames_ms, yolo_ms, ocr_ms, server_ms, total_ms
+        FROM reader_commands
+        WHERE total_ms IS NOT NULL AND result_message LIKE 'Recognized %'
+        ORDER BY completed_at DESC, id DESC
+        LIMIT 1
+        """
+    ).fetchone()
     daily = connection.execute(
         """
         SELECT event_date, total_events, authorized_count, denied_count, gates_opened
@@ -582,6 +602,7 @@ def load_dashboard_state() -> dict[str, Any]:
         "summary": summary,
         "recent_events": recent_events,
         "latest_event": latest_event,
+        "latest_timing": latest_timing,
         "daily": daily,
         "system": system,
         "latest_capture_version": (
@@ -622,6 +643,7 @@ def dashboard_sync():
     payload = {
         "summary": summary,
         "latest_event": latest,
+        "latest_timing": dict(state["latest_timing"]) if state["latest_timing"] else None,
         "recent_events": recent,
         "daily": [dict(row) for row in state["daily"]],
         "system": {

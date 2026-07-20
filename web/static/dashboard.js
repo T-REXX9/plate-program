@@ -49,12 +49,18 @@
     }, { once: true });
   }
 
-  function updateLatest(event) {
+  const formatDuration = (milliseconds) => {
+    const value = Number(milliseconds || 0);
+    return value >= 1000 ? `${(value / 1000).toFixed(2)} s` : `${value} ms`;
+  };
+
+  function updateLatest(event, timing) {
     const frame = byId("latest-photo-frame");
     const image = byId("latest-photo");
     const details = byId("latest-photo-details");
     const placeholder = byId("latest-photo-placeholder");
     const decision = byId("latest-decision");
+    const timingLabel = byId("latest-timing");
     if (!frame || !image || !details || !placeholder || !decision) return;
 
     if (!event) {
@@ -62,6 +68,7 @@
       details.hidden = true;
       decision.hidden = true;
       placeholder.hidden = false;
+      if (timingLabel) timingLabel.hidden = true;
       return;
     }
 
@@ -76,6 +83,13 @@
     text("latest-plate", event.plate_number);
     text("latest-owner", event.owner_name || "Unregistered vehicle");
     text("latest-time", event.local_time);
+    if (timingLabel) {
+      timingLabel.hidden = !timing;
+      if (timing) {
+        timingLabel.textContent = `${formatDuration(timing.total_ms)} total`;
+        timingLabel.title = `Frames ${formatDuration(timing.frames_ms)} · YOLO ${formatDuration(timing.yolo_ms)} · OCR ${formatDuration(timing.ocr_ms)} · Upload ${formatDuration(timing.server_ms)}`;
+      }
+    }
     decision.className = `status ${String(event.decision || "").toLowerCase()}`;
     decision.textContent = event.decision;
     decision.hidden = false;
@@ -179,7 +193,7 @@
     );
     indicator("gate-indicator", data.system.gate_state === "open" ? "online" : "neutral");
     updateCaptureButton(data.system.detector_state);
-    updateLatest(data.latest_event);
+    updateLatest(data.latest_event, data.latest_timing);
     updateRecent(data.recent_events);
     updateDaily(data.daily);
   }

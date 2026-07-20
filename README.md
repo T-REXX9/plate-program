@@ -13,7 +13,8 @@ No Docker or SQLite is used.
 3. The Pi captures five frames and selects the best detected plate crop.
 4. PP-OCRv5 returns a clean alphanumeric value and uploads it with the crop.
 5. The server checks MySQL, stores the event, and returns authorized or denied.
-6. The dashboard synchronizes automatically without full-page refreshes.
+6. The dashboard shows the Pi's frame, YOLO, OCR, upload, and total timings.
+7. The dashboard synchronizes automatically without full-page refreshes.
 
 ## Install MySQL directly on macOS
 

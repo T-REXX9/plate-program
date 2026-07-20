@@ -59,6 +59,7 @@
       <div id="latest-photo-details" class="event-photo-details" {% if not latest_event %}hidden{% endif %}>
         <span id="latest-plate" class="plate">{{ latest_event.plate_number if latest_event else '' }}</span>
         <strong id="latest-owner">{{ latest_event.owner_name or 'Unregistered vehicle' if latest_event else '' }}</strong>
+        <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
         <span id="latest-time">{{ latest_event.local_time if latest_event else '' }}</span>
       </div>
       <div id="latest-photo-placeholder" class="event-photo-placeholder" {% if latest_event %}hidden{% endif %}><strong>No plate captured yet</strong><span>The first granted or denied plate crop will appear here automatically.</span></div>

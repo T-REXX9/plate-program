@@ -24,10 +24,23 @@ if ! command -v mysql >/dev/null 2>&1; then
     exit 1
 fi
 
-MYSQL_PWD="$MYSQL_PASSWORD" mysql \
-    --host="$MYSQL_HOST" \
-    --port="$MYSQL_PORT" \
-    --user="$MYSQL_USER" \
-    "$MYSQL_DATABASE" < "$schema_path"
+mysql_command=(
+    mysql
+    --host="$MYSQL_HOST"
+    --port="$MYSQL_PORT"
+    --user="$MYSQL_USER"
+    "$MYSQL_DATABASE"
+)
+
+MYSQL_PWD="$MYSQL_PASSWORD" "${mysql_command[@]}" < "$schema_path"
+
+for timing_column in frames_ms yolo_ms ocr_ms server_ms total_ms; do
+    present="$(MYSQL_PWD="$MYSQL_PASSWORD" "${mysql_command[@]}" --batch --skip-column-names \
+        --execute="SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'reader_commands' AND column_name = '$timing_column'")"
+    if [[ "$present" == "0" ]]; then
+        MYSQL_PWD="$MYSQL_PASSWORD" "${mysql_command[@]}" \
+            --execute="ALTER TABLE reader_commands ADD COLUMN $timing_column INT UNSIGNED NULL"
+    fi
+done
 
 echo "MySQL schema ready: $MYSQL_DATABASE on $MYSQL_HOST:$MYSQL_PORT"

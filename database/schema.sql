@@ -83,6 +83,11 @@ CREATE TABLE IF NOT EXISTS reader_commands (
     started_at TIMESTAMP NULL,
     completed_at TIMESTAMP NULL,
     result_message VARCHAR(500) NULL,
+    frames_ms INT UNSIGNED NULL,
+    yolo_ms INT UNSIGNED NULL,
+    ocr_ms INT UNSIGNED NULL,
+    server_ms INT UNSIGNED NULL,
+    total_ms INT UNSIGNED NULL,
     PRIMARY KEY (id),
     KEY idx_reader_commands_status_created (status, created_at),
     CONSTRAINT fk_reader_commands_user FOREIGN KEY (requested_by)
