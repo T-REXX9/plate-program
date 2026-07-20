@@ -84,6 +84,14 @@
     placeholder.hidden = true;
   }
 
+  function updateCaptureButton(detectorState) {
+    const button = byId("camera-capture-button");
+    if (!button) return;
+    const busy = ["queued", "active"].includes(detectorState);
+    button.disabled = busy;
+    button.textContent = busy ? "Capturing…" : "Capture plate";
+  }
+
   function updateRecent(events) {
     const body = byId("recent-events-body");
     if (!body) return;
@@ -170,6 +178,7 @@
         : "offline",
     );
     indicator("gate-indicator", data.system.gate_state === "open" ? "online" : "neutral");
+    updateCaptureButton(data.system.detector_state);
     updateLatest(data.latest_event);
     updateRecent(data.recent_events);
     updateDaily(data.daily);
@@ -178,6 +187,32 @@
   function schedule() {
     window.clearTimeout(timer);
     if (!document.hidden) timer = window.setTimeout(sync, POLL_INTERVAL_MS);
+  }
+
+  function setupCaptureForm() {
+    const form = byId("camera-capture-form");
+    const button = byId("camera-capture-button");
+    if (!form || !button) return;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      button.textContent = "Capturing…";
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          headers: { Accept: "application/json" },
+        });
+        const result = await response.json();
+        showNotification(result.message, result.success ? "success" : "error");
+        await sync();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Capture plate";
+        showNotification("The capture request could not be sent.", "error");
+        console.warn(error);
+      }
+    });
   }
 
   async function sync() {
@@ -211,5 +246,6 @@
     window.clearTimeout(timer);
     if (!document.hidden) sync();
   });
+  setupCaptureForm();
   sync();
 })();

@@ -223,17 +223,94 @@ def validate_authenticated_user():
 
 @app.before_request
 def protect_forms() -> None:
-    if request.method == "POST" and request.endpoint != "reader_recognition":
+    reader_endpoints = {
+        "reader_recognition",
+        "reader_next_command",
+        "reader_complete_command",
+    }
+    if request.method == "POST" and request.endpoint not in reader_endpoints:
         supplied = request.form.get("csrf_token", "")
         expected = session.get("csrf_token", "")
         if not expected or not secrets.compare_digest(supplied, expected):
             abort(400, "Invalid form token. Refresh the page and try again.")
 
 
+def reader_api_authorized() -> bool:
+    supplied_key = request.headers.get("X-API-Key", "")
+    return secrets.compare_digest(supplied_key, app.config["READER_API_KEY"])
+
+
+@app.post("/api/reader/commands/next")
+def reader_next_command():
+    if not reader_api_authorized():
+        return {"error": "Invalid reader API key."}, 401
+    connection = get_db()
+    connection.execute("START TRANSACTION")
+    command = connection.execute(
+        """
+        SELECT id, command_type FROM reader_commands
+        WHERE status = 'pending'
+        ORDER BY created_at, id
+        LIMIT 1 FOR UPDATE
+        """
+    ).fetchone()
+    if command is None:
+        connection.commit()
+        return "", 204
+    connection.execute(
+        """
+        UPDATE reader_commands
+        SET status = 'active', started_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'pending'
+        """,
+        (command["id"],),
+    )
+    connection.execute(
+        """
+        UPDATE system_status
+        SET camera_state = 'remote', detector_state = 'active',
+            last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        """
+    )
+    connection.commit()
+    return {
+        "command": command["command_type"],
+        "command_id": command["id"],
+    }
+
+
+@app.post("/api/reader/commands/<int:command_id>/complete")
+def reader_complete_command(command_id: int):
+    if not reader_api_authorized():
+        return {"error": "Invalid reader API key."}, 401
+    requested_status = request.form.get("status", "completed")
+    status = requested_status if requested_status in {"completed", "failed"} else "failed"
+    message = request.form.get("message", "")[:500] or None
+    connection = get_db()
+    cursor = connection.execute(
+        """
+        UPDATE reader_commands
+        SET status = ?, completed_at = CURRENT_TIMESTAMP, result_message = ?
+        WHERE id = ? AND status IN ('pending', 'active')
+        """,
+        (status, message, command_id),
+    )
+    connection.execute(
+        """
+        UPDATE system_status
+        SET camera_state = 'remote', detector_state = 'idle',
+            last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        """
+    )
+    connection.commit()
+    return {"accepted": cursor.rowcount > 0, "command_id": command_id, "status": status}
+
+
 @app.post("/api/reader/recognitions")
 def reader_recognition():
-    supplied_key = request.headers.get("X-API-Key", "")
-    if not secrets.compare_digest(supplied_key, app.config["READER_API_KEY"]):
+    if not reader_api_authorized():
         return {"error": "Invalid reader API key."}, 401
 
     plate = normalize_plate(request.form.get("plate", ""))
@@ -319,6 +396,20 @@ def reader_recognition():
         """,
         (plate,),
     )
+    try:
+        command_id = int(request.form.get("command_id", "0"))
+    except ValueError:
+        command_id = 0
+    if command_id > 0:
+        connection.execute(
+            """
+            UPDATE reader_commands
+            SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
+                result_message = ?
+            WHERE id = ? AND status IN ('pending', 'active')
+            """,
+            (f"Recognized {plate}", command_id),
+        )
     connection.commit()
     return {
         "accepted": True,
@@ -421,6 +512,24 @@ def logout():
 
 def load_dashboard_state() -> dict[str, Any]:
     connection = get_db()
+    expired = connection.execute(
+        """
+        UPDATE reader_commands
+        SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
+            result_message = 'Command timed out before completion'
+        WHERE status IN ('pending', 'active')
+          AND COALESCE(started_at, created_at) < TIMESTAMPADD(MINUTE, -2, CURRENT_TIMESTAMP)
+        """
+    )
+    if expired.rowcount > 0:
+        connection.execute(
+            """
+            UPDATE system_status
+            SET detector_state = 'idle', updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+            """
+        )
+        connection.commit()
     summary = connection.execute(
         """
         SELECT
@@ -525,6 +634,55 @@ def dashboard_sync():
         },
     }
     return payload, 200, {"Cache-Control": "no-store"}
+
+
+@app.post("/camera/capture")
+@role_required("administrator")
+def camera_capture():
+    connection = get_db()
+    connection.execute(
+        """
+        UPDATE reader_commands
+        SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
+            result_message = 'Command timed out before completion'
+        WHERE status IN ('pending', 'active')
+          AND COALESCE(started_at, created_at) < TIMESTAMPADD(MINUTE, -2, CURRENT_TIMESTAMP)
+        """
+    )
+    existing = connection.execute(
+        """
+        SELECT id, status FROM reader_commands
+        WHERE status IN ('pending', 'active')
+        ORDER BY created_at LIMIT 1
+        """
+    ).fetchone()
+    if existing is not None:
+        connection.commit()
+        success = False
+        message = "A plate capture is already queued or running."
+    else:
+        cursor = connection.execute(
+            """
+            INSERT INTO reader_commands (command_type, status, requested_by)
+            VALUES ('capture', 'pending', ?)
+            """,
+            (session["user_id"],),
+        )
+        connection.execute(
+            """
+            UPDATE system_status
+            SET detector_state = 'queued', updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+            """
+        )
+        record_audit("queue_capture", "reader_command", cursor.lastrowid, "Remote plate capture")
+        connection.commit()
+        success = True
+        message = "Plate capture queued for the Raspberry Pi."
+    if request.accept_mimetypes.best == "application/json":
+        return {"success": success, "message": message}, 202 if success else 409
+    flash(message, "success" if success else "error")
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/vehicles")

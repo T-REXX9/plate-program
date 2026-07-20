@@ -74,6 +74,21 @@ CREATE TABLE IF NOT EXISTS audit_log (
         REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS reader_commands (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    command_type ENUM('capture') NOT NULL DEFAULT 'capture',
+    status ENUM('pending', 'active', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+    requested_by BIGINT UNSIGNED NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP NULL,
+    completed_at TIMESTAMP NULL,
+    result_message VARCHAR(500) NULL,
+    PRIMARY KEY (id),
+    KEY idx_reader_commands_status_created (status, created_at),
+    CONSTRAINT fk_reader_commands_user FOREIGN KEY (requested_by)
+        REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE IF NOT EXISTS system_status (
     id TINYINT UNSIGNED NOT NULL,
     camera_state VARCHAR(40) NOT NULL DEFAULT 'unknown',

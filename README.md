@@ -8,11 +8,12 @@ No Docker or SQLite is used.
 
 ## Data flow
 
-1. The Raspberry Pi captures five frames and selects the best plate crop.
-2. YOLO detects the plate and PP-OCRv5 returns a clean alphanumeric value.
-3. The Pi sends the plate, confidence, and enhanced JPEG crop to this server.
-4. The server checks MySQL, stores the event, and returns authorized or denied.
-5. The dashboard synchronizes automatically without full-page refreshes.
+1. An administrator presses **Capture plate** on the dashboard.
+2. The Raspberry Pi claims the request while YOLO and OCR remain idle.
+3. The Pi captures five frames and selects the best detected plate crop.
+4. PP-OCRv5 returns a clean alphanumeric value and uploads it with the crop.
+5. The server checks MySQL, stores the event, and returns authorized or denied.
+6. The dashboard synchronizes automatically without full-page refreshes.
 
 ## Install MySQL directly on macOS
 
@@ -95,7 +96,8 @@ database/reader_api.key
 Copy its value into `PLATE_API_KEY` on the Raspberry Pi. The reader API key and
 MySQL password are different secrets and should never be exchanged.
 
-The Pi sends requests to `POST /api/reader/recognitions`. MySQL lookup and event
+The Pi polls `POST /api/reader/commands/next` for lightweight capture requests,
+then sends results to `POST /api/reader/recognitions`. MySQL lookup and event
 storage occur only on the PC.
 
 ## Backups
