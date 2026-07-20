@@ -1,0 +1,10 @@
+.DS_Store
+.web-venv/
+Output/
+database/*.db
+database/*.db-shm
+database/*.db-wal
+database/web_secret.key
+database/reader_api.key
+__pycache__/
+*.py[cod]
