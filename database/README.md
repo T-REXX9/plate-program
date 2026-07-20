@@ -1,25 +1,22 @@
-# Gate access database
+# Native MySQL database
 
-`gate_access.db` is the PC-hosted SQLite database for the plate-recognition gate.
-It contains registered vehicles, entry/exit events, website users, audit logs,
-system status, and settings.
+The web server uses a native MySQL 8 installation exclusively. There is no
+SQLite runtime, database file, Docker container, or container volume.
 
-The database starts empty. Plate records must be uppercase letters and digits
-without spaces or punctuation, matching the C++ OCR output.
+The schema contains registered vehicles, access events, dashboard users, audit
+logs, system status, settings, indexes, foreign keys, constraints, and the
+seven-day activity view. It is safe to apply `schema.sql` more than once.
 
-To create or safely re-apply the schema:
+Install and start MySQL directly on the PC, create the `plate_access_control`
+database and restricted `gatekeeper` account, then configure the matching
+credentials in the private `.env` file.
+
+Apply or update the schema with:
 
 ```bash
 ./database/init_database.sh
 ```
 
-The script does not delete existing records. Event photographs should remain
-as image files; store their relative paths in `access_events.image_path`.
-Passwords must be added by the future website as secure hashes, never as plain
-text.
-
-The admin website creates the first password securely at `/setup`. The
-Raspberry Pi reader sends recognition events to the HTTP API. The website
-performs authorization and writes those events to this database after
-matching OCR readings. It checks `vehicles.is_active` before marking an event
-as authorized.
+The Flask application also reapplies the idempotent schema when it starts.
+MySQL stores structured records, while captured JPEG crops remain in `Output`
+and their relative paths are stored in `access_events.image_path`.

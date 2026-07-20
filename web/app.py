@@ -6,11 +6,15 @@ import math
 import os
 import re
 import secrets
-import sqlite3
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any
+
+import pymysql
+from dotenv import load_dotenv
+from pymysql.cursors import DictCursor
+from pymysql.err import IntegrityError
 
 from flask import (
     Flask,
@@ -29,8 +33,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_DIR / ".env")
 DATABASE_DIR = PROJECT_DIR / "database"
-DATABASE_PATH = DATABASE_DIR / "gate_access.db"
 SCHEMA_PATH = DATABASE_DIR / "schema.sql"
 SECRET_PATH = DATABASE_DIR / "web_secret.key"
 OUTPUT_DIR = PROJECT_DIR / "Output"
@@ -68,28 +72,67 @@ app.config.update(
 )
 
 
+def mysql_options() -> dict[str, Any]:
+    time_zone = os.environ.get("MYSQL_TIME_ZONE", "+08:00")
+    if not re.fullmatch(r"[+-](?:0\d|1[0-4]):[0-5]\d", time_zone):
+        raise ValueError("MYSQL_TIME_ZONE must be a numeric offset such as +08:00.")
+    return {
+        "host": os.environ.get("MYSQL_HOST", "127.0.0.1"),
+        "port": int(os.environ.get("MYSQL_PORT", "3306")),
+        "user": os.environ.get("MYSQL_USER", "gatekeeper"),
+        "password": os.environ.get("MYSQL_PASSWORD", ""),
+        "database": os.environ.get("MYSQL_DATABASE", "plate_access_control"),
+        "charset": "utf8mb4",
+        "cursorclass": DictCursor,
+        "connect_timeout": 5,
+        "read_timeout": 10,
+        "write_timeout": 10,
+        "init_command": f"SET time_zone = '{time_zone}'",
+        "autocommit": False,
+    }
+
+
+class DatabaseConnection:
+    def __init__(self) -> None:
+        self.connection = pymysql.connect(**mysql_options())
+
+    def execute(self, sql: str, parameters: Any = ()):
+        cursor = self.connection.cursor()
+        if parameters:
+            sql = sql.replace("%", "%%").replace("?", "%s")
+            cursor.execute(sql, parameters)
+        else:
+            cursor.execute(sql)
+        return cursor
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+    def rollback(self) -> None:
+        self.connection.rollback()
+
+    def close(self) -> None:
+        self.connection.close()
+
+
 def initialize_database() -> None:
-    DATABASE_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH)
-    existing = connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vehicles'"
-    ).fetchone()
-    if existing is not None:
+    connection = DatabaseConnection()
+    try:
+        for statement in SCHEMA_PATH.read_text(encoding="utf-8").split(";"):
+            statement = statement.strip()
+            if statement:
+                connection.execute(statement)
+        connection.commit()
+    finally:
         connection.close()
-        return
-    connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-    connection.close()
 
 
 initialize_database()
 
 
-def get_db() -> sqlite3.Connection:
+def get_db() -> DatabaseConnection:
     if "db" not in g:
-        g.db = sqlite3.connect(DATABASE_PATH, timeout=10)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
-        g.db.execute("PRAGMA busy_timeout = 10000")
+        g.db = DatabaseConnection()
     return g.db
 
 
@@ -216,8 +259,8 @@ def reader_recognition():
         """
         SELECT id, owner_name FROM vehicles
         WHERE plate_number = ? AND is_active = 1
-          AND (registration_expires_on IS NULL OR registration_expires_on = ''
-               OR date(registration_expires_on) >= date('now', 'localtime'))
+          AND (registration_expires_on IS NULL
+               OR registration_expires_on >= CURRENT_DATE)
         LIMIT 1
         """,
         (plate,),
@@ -228,9 +271,11 @@ def reader_recognition():
     duplicate = connection.execute(
         """
         SELECT id FROM access_events
-        WHERE plate_number = ? AND detected_at >= datetime(
-            'now', '-' || coalesce((SELECT value FROM settings
-            WHERE key = 'duplicate_event_seconds'), '30') || ' seconds'
+        WHERE plate_number = ? AND detected_at >= TIMESTAMPADD(
+            SECOND,
+            -CAST(COALESCE((SELECT `value` FROM settings
+                WHERE `key` = 'duplicate_event_seconds'), '30') AS SIGNED),
+            NOW()
         )
         ORDER BY detected_at DESC LIMIT 1
         """,
@@ -380,15 +425,15 @@ def load_dashboard_state() -> dict[str, Any]:
         """
         SELECT
             (SELECT count(*) FROM vehicles WHERE is_active = 1) AS active_vehicles,
-            (SELECT count(*) FROM access_events WHERE date(detected_at, 'localtime') = date('now', 'localtime')) AS events_today,
-            (SELECT count(*) FROM access_events WHERE decision = 'authorized' AND date(detected_at, 'localtime') = date('now', 'localtime')) AS authorized_today,
-            (SELECT count(*) FROM access_events WHERE decision = 'denied' AND date(detected_at, 'localtime') = date('now', 'localtime')) AS denied_today
+            (SELECT count(*) FROM access_events WHERE DATE(detected_at) = CURRENT_DATE) AS events_today,
+            (SELECT count(*) FROM access_events WHERE decision = 'authorized' AND DATE(detected_at) = CURRENT_DATE) AS authorized_today,
+            (SELECT count(*) FROM access_events WHERE decision = 'denied' AND DATE(detected_at) = CURRENT_DATE) AS denied_today
         """
     ).fetchone()
     recent_events = connection.execute(
         """
         SELECT e.id, e.plate_number, e.decision, e.gate_action,
-               datetime(e.detected_at, 'localtime') AS local_time,
+               DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
                v.owner_name, v.vehicle_type, v.make, v.model
         FROM access_events e
         LEFT JOIN vehicles v ON v.id = e.vehicle_id
@@ -399,7 +444,7 @@ def load_dashboard_state() -> dict[str, Any]:
     latest_event = connection.execute(
         """
         SELECT e.id, e.plate_number, e.decision,
-               datetime(e.detected_at, 'localtime') AS local_time,
+               DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
                v.owner_name
         FROM access_events e
         LEFT JOIN vehicles v ON v.id = e.vehicle_id
@@ -416,7 +461,14 @@ def load_dashboard_state() -> dict[str, Any]:
         LIMIT 7
         """
     ).fetchall()
-    system = connection.execute("SELECT * FROM system_status WHERE id = 1").fetchone()
+    system = connection.execute(
+        """
+        SELECT id, camera_state, detector_state, gate_state, last_plate,
+               DATE_FORMAT(last_heartbeat, '%Y-%m-%d %H:%i:%s') AS last_heartbeat,
+               DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+        FROM system_status WHERE id = 1
+        """
+    ).fetchone()
     return {
         "summary": summary,
         "recent_events": recent_events,
@@ -541,7 +593,7 @@ def vehicle_new():
                 connection.commit()
                 flash(f'{values["plate_number"]} was registered successfully.', "success")
                 return redirect(url_for("vehicles"))
-            except sqlite3.IntegrityError:
+            except IntegrityError:
                 flash("That plate number is already registered or is invalid.", "error")
     return render_template("vehicle_form.html", vehicle=values, editing=False)
 
@@ -574,7 +626,7 @@ def vehicle_edit(vehicle_id: int):
             connection.commit()
             flash("Vehicle details updated.", "success")
             return redirect(url_for("vehicles"))
-        except sqlite3.IntegrityError:
+        except IntegrityError:
             flash("That plate number is already registered or is invalid.", "error")
     return render_template("vehicle_form.html", vehicle=values, editing=True)
 
@@ -643,7 +695,7 @@ def user_new():
                 connection.commit()
                 flash(f"Read-only guard account {username} was created.", "success")
                 return redirect(url_for("users"))
-            except sqlite3.IntegrityError:
+            except IntegrityError:
                 flash("That username is already in use.", "error")
     return render_template("user_form.html", username=username)
 
@@ -688,10 +740,10 @@ def log_filters() -> tuple[list[str], list[Any]]:
         clauses.append("e.decision = ?")
         parameters.append(decision)
     if date_from:
-        clauses.append("date(e.detected_at, 'localtime') >= date(?)")
+        clauses.append("DATE(e.detected_at) >= ?")
         parameters.append(date_from)
     if date_to:
-        clauses.append("date(e.detected_at, 'localtime') <= date(?)")
+        clauses.append("DATE(e.detected_at) <= ?")
         parameters.append(date_to)
     return clauses, parameters
 
@@ -708,11 +760,11 @@ def logs():
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     connection = get_db()
     total = connection.execute(
-        f"SELECT count(*) FROM access_events e {where}", parameters
-    ).fetchone()[0]
+        f"SELECT count(*) AS total FROM access_events e {where}", parameters
+    ).fetchone()["total"]
     records = connection.execute(
         f"""
-        SELECT e.*, datetime(e.detected_at, 'localtime') AS local_time,
+        SELECT e.*, DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
                v.owner_name, v.vehicle_type, v.make, v.model, v.color
         FROM access_events e
         LEFT JOIN vehicles v ON v.id = e.vehicle_id
@@ -739,7 +791,7 @@ def logs_export():
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     records = get_db().execute(
         f"""
-        SELECT datetime(e.detected_at, 'localtime') AS local_time,
+        SELECT DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
                e.plate_number, coalesce(v.owner_name, 'Unknown') AS owner_name,
                coalesce(v.vehicle_type, '') AS vehicle_type,
                coalesce(v.make, '') AS make, coalesce(v.model, '') AS model,
@@ -759,7 +811,7 @@ def logs_export():
         "Direction", "Decision", "Gate action", "Detector confidence",
         "OCR confidence", "Image path",
     ])
-    writer.writerows(tuple(row) for row in records)
+    writer.writerows(tuple(row.values()) for row in records)
     return Response(
         output.getvalue(),
         mimetype="text/csv",
