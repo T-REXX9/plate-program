@@ -39,7 +39,6 @@ SCHEMA_PATH = DATABASE_DIR / "schema.sql"
 SECRET_PATH = DATABASE_DIR / "web_secret.key"
 OUTPUT_DIR = PROJECT_DIR / "Output"
 LATEST_CAPTURE_PATH = OUTPUT_DIR / "latest-plate-crop.jpg"
-READER_API_KEY_PATH = DATABASE_DIR / "reader_api.key"
 
 
 def load_secret_key() -> str:
@@ -50,21 +49,9 @@ def load_secret_key() -> str:
     return SECRET_PATH.read_text(encoding="utf-8").strip()
 
 
-def load_reader_api_key() -> str:
-    configured = os.environ.get("PLATE_API_KEY", "").strip()
-    if configured:
-        return configured
-    DATABASE_DIR.mkdir(parents=True, exist_ok=True)
-    if not READER_API_KEY_PATH.exists():
-        READER_API_KEY_PATH.write_text(secrets.token_hex(32), encoding="utf-8")
-        READER_API_KEY_PATH.chmod(0o600)
-    return READER_API_KEY_PATH.read_text(encoding="utf-8").strip()
-
-
 app = Flask(__name__)
 app.config.update(
     SECRET_KEY=load_secret_key(),
-    READER_API_KEY=load_reader_api_key(),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=60 * 60 * 8,
@@ -235,15 +222,8 @@ def protect_forms() -> None:
             abort(400, "Invalid form token. Refresh the page and try again.")
 
 
-def reader_api_authorized() -> bool:
-    supplied_key = request.headers.get("X-API-Key", "")
-    return secrets.compare_digest(supplied_key, app.config["READER_API_KEY"])
-
-
 @app.post("/api/reader/commands/next")
 def reader_next_command():
-    if not reader_api_authorized():
-        return {"error": "Invalid reader API key."}, 401
     connection = get_db()
     connection.execute("START TRANSACTION")
     command = connection.execute(
@@ -282,8 +262,6 @@ def reader_next_command():
 
 @app.post("/api/reader/commands/<int:command_id>/complete")
 def reader_complete_command(command_id: int):
-    if not reader_api_authorized():
-        return {"error": "Invalid reader API key."}, 401
     requested_status = request.form.get("status", "completed")
     status = requested_status if requested_status in {"completed", "failed"} else "failed"
     message = request.form.get("message", "")[:500] or None
@@ -321,9 +299,6 @@ def reader_complete_command(command_id: int):
 
 @app.post("/api/reader/recognitions")
 def reader_recognition():
-    if not reader_api_authorized():
-        return {"error": "Invalid reader API key."}, 401
-
     plate = normalize_plate(request.form.get("plate", ""))
     if not plate or len(plate) > 20:
         return {"error": "A valid alphanumeric plate is required."}, 400
@@ -1033,7 +1008,7 @@ def latest_capture_image():
 @app.route("/health")
 def health():
     get_db().execute("SELECT 1").fetchone()
-    return {"status": "ok"}
+    return {"status": "ok", "service": "plate-program"}
 
 
 if __name__ == "__main__":

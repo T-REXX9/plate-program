@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+label="com.gatekeeper.plate-program"
+case "$(uname -s)" in
+    Darwin)
+        platform="macos"
+        project_dir="/usr/local/plate-program"
+        plist="$HOME/Library/LaunchAgents/$label.plist"
+        log_file="$HOME/Library/Logs/plate-program.log"
+        ;;
+    Linux)
+        platform="linux"
+        project_dir="/opt/plate-program"
+        service_name="plate-program.service"
+        ;;
+    *)
+        echo "This command supports macOS and Ubuntu Linux." >&2
+        exit 1
+        ;;
+esac
+
+become_root_on_linux() {
+    if [[ "$platform" == "linux" && $EUID -ne 0 ]]; then
+        exec sudo "$0" "$@"
+    fi
+}
+
+start_program() {
+    if [[ "$platform" == "macos" ]]; then
+        launchctl bootout "gui/$UID/$label" 2>/dev/null || true
+        launchctl bootstrap "gui/$UID" "$plist"
+        launchctl kickstart -k "gui/$UID/$label"
+    else
+        systemctl enable --now "$service_name"
+    fi
+}
+
+stop_program() {
+    if [[ "$platform" == "macos" ]]; then
+        launchctl bootout "gui/$UID/$label" 2>/dev/null || true
+    else
+        systemctl stop "$service_name" 2>/dev/null || true
+    fi
+}
+
+show_status() {
+    if [[ "$platform" == "macos" ]]; then
+        launchctl print "gui/$UID/$label" 2>/dev/null || {
+            echo "Plate program is stopped."
+            return 1
+        }
+    else
+        systemctl --no-pager --full status "$service_name"
+    fi
+}
+
+show_url() {
+    local_ip=""
+    if [[ "$platform" == "macos" ]]; then
+        for interface in en0 en1; do
+            local_ip="$(ipconfig getifaddr "$interface" 2>/dev/null || true)"
+            [[ -n "$local_ip" ]] && break
+        done
+    else
+        local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    fi
+    echo "On this computer: http://localhost:8080"
+    if [[ -n "$local_ip" ]]; then
+        echo "From the Raspberry Pi or another device: http://$local_ip:8080"
+    fi
+}
+
+usage() {
+    cat <<'EOF'
+Plate program management
+
+  program -status     Show whether the website is running
+  program -logs       Follow live website logs
+  program -update     Safely pull, install, migrate, and restart
+  program -url        Show the local website addresses
+  program -start      Start the website
+  program -stop       Stop the website
+  program -restart    Restart the website
+  program -help       Show this help
+EOF
+}
+
+command_name="${1:--help}"
+case "$command_name" in
+    -status|status)
+        show_status || true
+        ;;
+    -logs|logs)
+        if [[ "$platform" == "macos" ]]; then
+            touch "$log_file"
+            tail -n 100 -f "$log_file"
+        else
+            become_root_on_linux "$@"
+            journalctl -u "$service_name" -n 100 -f
+        fi
+        ;;
+    -url|url)
+        show_url
+        ;;
+    -start|start)
+        become_root_on_linux "$@"
+        start_program
+        show_url
+        ;;
+    -stop|stop)
+        become_root_on_linux "$@"
+        stop_program
+        echo "Plate program stopped."
+        ;;
+    -restart|restart)
+        become_root_on_linux "$@"
+        stop_program
+        start_program
+        show_url
+        ;;
+    -update|update)
+        become_root_on_linux "$@"
+        old_revision="$(git -C "$project_dir" rev-parse HEAD)"
+        stop_program
+        echo "Downloading the latest main-branch update..."
+        if git -C "$project_dir" fetch origin main &&
+           git -C "$project_dir" merge --ff-only origin/main &&
+           bash "$project_dir/install_program.sh" --refresh; then
+            echo "Plate program updated and restarted successfully."
+            show_url
+        else
+            echo "Update failed. Restoring the previous working version..." >&2
+            git -C "$project_dir" reset --hard "$old_revision"
+            bash "$project_dir/install_program.sh" --refresh
+            echo "The previous version was restored and restarted." >&2
+            exit 1
+        fi
+        ;;
+    -help|help|--help)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $command_name" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

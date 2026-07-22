@@ -7,10 +7,10 @@ venv_dir="$project_dir/.web-venv"
 platform_id="$(uname -s)-$(uname -m)-$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 platform_file="$venv_dir/.platform-id"
 
-if [[ -f "$platform_file" ]] && [[ "$(<"$platform_file")" == "$platform_id" ]]; then
-    python3 -m venv "$venv_dir"
-else
+if [[ ! -f "$platform_file" ]] || [[ "$(<"$platform_file")" != "$platform_id" ]]; then
     python3 -m venv --clear "$venv_dir"
+elif [[ ! -x "$venv_dir/bin/python" ]]; then
+    python3 -m venv "$venv_dir"
 fi
 "$venv_dir/bin/python" -m pip install --upgrade pip
 "$venv_dir/bin/python" -m pip install -r "$web_dir/requirements.txt"

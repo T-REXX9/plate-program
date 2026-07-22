@@ -10,13 +10,49 @@ No Docker or SQLite is used.
 
 1. An administrator presses **Capture plate** on the dashboard.
 2. The Raspberry Pi claims the request while YOLO and OCR remain idle.
-3. The Pi captures five frames and selects the best detected plate crop.
+3. The Pi captures three frames and selects the best detected plate crop.
 4. PP-OCRv5 returns a clean alphanumeric value and uploads it with the crop.
 5. The server checks MySQL, stores the event, and returns authorized or denied.
 6. The dashboard shows the Pi's frame, YOLO, OCR, upload, and total timings.
 7. The dashboard synchronizes automatically without full-page refreshes.
 
-## Install MySQL directly on macOS
+## One-time installation
+
+On a fresh macOS computer, or an Ubuntu 22.04-or-newer computer, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/T-REXX9/plate-program/main/install_program.sh -o /tmp/install-program.sh && bash /tmp/install-program.sh
+```
+
+Do not add `sudo` on macOS. The installer requests administrator permission only
+for the specific files that need it. On Ubuntu it requests `sudo` itself.
+
+The installer handles Git, Python, MySQL, the database and restricted database
+account, a random web-session secret, the Python environment, database migrations, the
+first administrator account, and background startup. It prints the local-network
+website address needed by the Raspberry Pi.
+
+After installation, use these commands from any directory:
+
+```bash
+program -status
+program -logs
+program -url
+program -update
+program -restart
+program -stop
+program -start
+```
+
+`program -update` stops the website, fast-forwards the managed clone from GitHub
+`main`, updates dependencies and the database schema, and restarts it. If an
+update fails, the previous working revision is restored automatically.
+
+The macOS service starts whenever the installing user logs in. The Ubuntu service
+starts during boot. Windows requires a separate PowerShell installer and is not
+handled by this Bash script.
+
+## Manual MySQL installation on macOS
 
 ```bash
 brew install mysql
@@ -24,7 +60,7 @@ brew services start mysql
 mysql_secure_installation
 ```
 
-## Install MySQL directly on Ubuntu or Debian
+## Manual MySQL installation on Ubuntu
 
 ```bash
 sudo apt update
@@ -86,20 +122,11 @@ Open `http://localhost:8080`. Other devices on the same local network can open
 The `.env` file contains private MySQL credentials and is excluded from Git.
 The default `MYSQL_TIME_ZONE=+08:00` keeps timestamps in Philippine time.
 
-## Reader API key
-
-The first website launch creates a separate private API key in:
-
-```text
-database/reader_api.key
-```
-
-Copy its value into `PLATE_API_KEY` on the Raspberry Pi. The reader API key and
-MySQL password are different secrets and should never be exchanged.
-
 The Pi polls `POST /api/reader/commands/next` for lightweight capture requests,
 then sends results to `POST /api/reader/recognitions`. MySQL lookup and event
-storage occur only on the PC.
+storage occur only on the PC. These reader endpoints do not require an API token,
+so port 8080 must remain on the trusted local network and must not be forwarded
+from the internet.
 
 ## Backups
 

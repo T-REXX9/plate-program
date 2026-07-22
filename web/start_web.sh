@@ -15,5 +15,4 @@ fi
 
 cd "$web_dir"
 echo "Admin website: http://0.0.0.0:8080"
-echo "Reader API key: $project_dir/database/reader_api.key"
 exec "$venv_dir/bin/waitress-serve" --listen=0.0.0.0:8080 app:app
