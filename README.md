@@ -18,7 +18,7 @@ No Docker or SQLite is used.
 
 ## One-time installation
 
-On a fresh macOS computer, or an Ubuntu 22.04-or-newer computer, run:
+On a fresh macOS computer, or an Ubuntu 20.04-or-newer computer, run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/T-REXX9/plate-program/main/install_program.sh -o /tmp/install-program.sh && bash /tmp/install-program.sh
@@ -31,6 +31,21 @@ The installer handles Git, Python, MySQL, the database and restricted database
 account, a random web-session secret, the Python environment, database migrations, the
 first administrator account, and background startup. It prints the local-network
 website address needed by the Raspberry Pi.
+
+Ubuntu 20.04 includes an older system Python. On that release, the installer
+downloads the official Python 3.11.15 source archive, verifies its Python.org
+SHA-256 checksum, and installs it under `/opt/python-3.11.15`. It does not replace
+Ubuntu's `/usr/bin/python3`, so operating-system tools remain unaffected. The
+first installation can take several minutes while Python is compiled; subsequent
+updates reuse the verified installation.
+
+The installer automatically retries temporary download and package failures,
+repairs interrupted Ubuntu package operations, rejects incomplete or corrupted
+Python downloads, and prints service diagnostics when startup fails. It also
+enables all required official Ubuntu repository components and refreshes the
+official Google Linux signing key when a Chrome repository is present. Internet
+access, sufficient disk space, working hardware, and valid existing MySQL
+administrator credentials still have to be available.
 
 After installation, use these commands from any directory:
 
@@ -64,7 +79,7 @@ mysql_secure_installation
 
 ```bash
 sudo apt update
-sudo apt install mysql-server mysql-client
+sudo apt install mysql-server default-mysql-client
 sudo systemctl enable --now mysql
 sudo mysql_secure_installation
 ```
