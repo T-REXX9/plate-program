@@ -412,7 +412,11 @@ SQL
         'MYSQL_DATABASE=plate_access_control' \
         'MYSQL_USER=gatekeeper' \
         "MYSQL_PASSWORD=$database_password" \
-        'MYSQL_TIME_ZONE=+08:00' > "$env_file"
+        'MYSQL_TIME_ZONE=+08:00' \
+        'MOBILE_ACCOUNT_INTEGRATION_ENABLED=0' \
+        'MOBILE_ACCOUNT_SERVICE_URL=' \
+        'MOBILE_ACCOUNT_SITE_ID=' \
+        'MOBILE_ACCOUNT_SYNC_SECRET=' > "$env_file"
 elif [[ ! -f "$env_file" ]]; then
     echo "Database configuration is missing. Rerun the full installer." >&2
     exit 1

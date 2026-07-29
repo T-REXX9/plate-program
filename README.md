@@ -143,6 +143,28 @@ storage occur only on the PC. These reader endpoints do not require an API token
 so port 8080 must remain on the trusted local network and must not be forwarded
 from the internet.
 
+## Mobile account integration readiness
+
+Plate Program includes a dormant, additive MySQL cache for future homeowner
+account entitlements and synchronization metadata. It is disabled by default:
+
+```text
+MOBILE_ACCOUNT_INTEGRATION_ENABLED=0
+MOBILE_ACCOUNT_SERVICE_URL=
+MOBILE_ACCOUNT_SITE_ID=
+MOBILE_ACCOUNT_SYNC_SECRET=
+```
+
+`GET /api/account-sync/v1/capabilities` reports whether this local installation
+is prepared and configured without exposing secrets. No background connection,
+mobile authentication, payment processing, or Xendit integration runs in this
+repository yet. Most importantly, the reader authorization query does not use
+the dormant entitlement tables, so existing gate behavior is unchanged.
+
+The future public account service will hold homeowner identities, subscription
+records, payment history, and Xendit credentials. Plate Program will retain only
+the minimum vehicle entitlement data required for local, offline gate decisions.
+
 ## Backups
 
 A complete backup must contain both the MySQL database and the `Output` folder.

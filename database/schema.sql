@@ -114,6 +114,61 @@ CREATE TABLE IF NOT EXISTS settings (
     PRIMARY KEY (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- Dormant local cache for the future homeowner account service. These tables
+-- are additive and are not consulted by the existing reader authorization
+-- query until the integration is explicitly implemented and enabled.
+CREATE TABLE IF NOT EXISTS account_service_entitlements (
+    vehicle_id BIGINT UNSIGNED NOT NULL,
+    remote_vehicle_id VARCHAR(100) NOT NULL,
+    remote_household_id VARCHAR(100) NOT NULL,
+    entitlement_status ENUM(
+        'unconfigured', 'active', 'past_due', 'expired', 'suspended'
+    ) NOT NULL DEFAULT 'unconfigured',
+    paid_through DATE NULL,
+    grace_until DATE NULL,
+    source_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    last_synced_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (vehicle_id),
+    UNIQUE KEY uq_account_entitlements_remote_vehicle (remote_vehicle_id),
+    KEY idx_account_entitlements_household (remote_household_id),
+    KEY idx_account_entitlements_status_expiry (
+        entitlement_status, paid_through, grace_until
+    ),
+    CONSTRAINT fk_account_entitlements_vehicle FOREIGN KEY (vehicle_id)
+        REFERENCES vehicles(id) ON DELETE CASCADE,
+    CONSTRAINT chk_account_entitlements_dates CHECK (
+        grace_until IS NULL OR paid_through IS NULL OR grace_until >= paid_through
+    )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS account_service_sync_state (
+    id TINYINT UNSIGNED NOT NULL,
+    site_id VARCHAR(100) NULL,
+    remote_cursor VARCHAR(255) NULL,
+    last_attempt_at TIMESTAMP NULL,
+    last_success_at TIMESTAMP NULL,
+    last_error VARCHAR(1000) NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT chk_account_sync_state_singleton CHECK (id = 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS account_service_sync_audit (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    sync_direction ENUM('pull', 'push') NOT NULL,
+    sync_status ENUM('started', 'succeeded', 'failed', 'ignored') NOT NULL,
+    source_revision BIGINT UNSIGNED NULL,
+    records_received INT UNSIGNED NOT NULL DEFAULT 0,
+    records_applied INT UNSIGNED NOT NULL DEFAULT 0,
+    details VARCHAR(1000) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_account_sync_audit_created (created_at DESC),
+    KEY idx_account_sync_audit_status (sync_status, created_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE OR REPLACE VIEW daily_access_summary AS
 SELECT
     DATE_FORMAT(detected_at, '%Y-%m-%d') AS event_date,
@@ -125,6 +180,7 @@ FROM access_events
 GROUP BY DATE_FORMAT(detected_at, '%Y-%m-%d');
 
 INSERT IGNORE INTO system_status (id) VALUES (1);
+INSERT IGNORE INTO account_service_sync_state (id) VALUES (1);
 
 INSERT IGNORE INTO settings (`key`, `value`, description) VALUES
     ('gate_open_seconds', '5', 'How long the gate-open signal remains active.'),

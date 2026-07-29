@@ -139,6 +139,18 @@ def normalize_plate(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", value.upper())
 
 
+def environment_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise ValueError(f"{name} must be 0/1, true/false, yes/no, or on/off.")
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -1009,6 +1021,25 @@ def latest_capture_image():
 def health():
     get_db().execute("SELECT 1").fetchone()
     return {"status": "ok", "service": "plate-program"}
+
+
+@app.get("/api/account-sync/v1/capabilities")
+def account_sync_capabilities():
+    enabled = environment_flag("MOBILE_ACCOUNT_INTEGRATION_ENABLED")
+    service_url = os.environ.get("MOBILE_ACCOUNT_SERVICE_URL", "").strip()
+    site_id = os.environ.get("MOBILE_ACCOUNT_SITE_ID", "").strip()
+    secret_configured = bool(
+        os.environ.get("MOBILE_ACCOUNT_SYNC_SECRET", "").strip()
+    )
+    return {
+        "service": "plate-program",
+        "account_sync_api": "v1",
+        "schema_ready": True,
+        "enabled": enabled,
+        "configured": bool(service_url and site_id and secret_configured),
+        "authorization_enforcement": False,
+        "state": "disabled" if not enabled else "prepared",
+    }
 
 
 if __name__ == "__main__":

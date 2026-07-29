@@ -7,6 +7,11 @@ The schema contains registered vehicles, access events, dashboard users, audit
 logs, system status, settings, indexes, foreign keys, constraints, and the
 seven-day activity view. It is safe to apply `schema.sql` more than once.
 
+Three additive `account_service_*` tables reserve a minimal local entitlement
+cache, synchronization cursor, and sync audit trail for the future homeowner
+mobile-account service. They are dormant and are not used by the current gate
+authorization query.
+
 Install and start MySQL directly on the PC, create the `plate_access_control`
 database and restricted `gatekeeper` account, then configure the matching
 credentials in the private `.env` file.
