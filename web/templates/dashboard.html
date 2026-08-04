@@ -24,6 +24,7 @@
       <div><dt>Reader</dt><dd><span id="detector-indicator" class="indicator {{ 'online' if system.detector_state in ['idle', 'queued', 'active'] else 'offline' }}"></span><span id="system-detector">{{ system.detector_state | title }}</span></dd></div>
       <div><dt>Gate</dt><dd><span id="gate-indicator" class="indicator {{ 'online' if system.gate_state == 'open' else 'neutral' }}"></span><span id="system-gate">{{ system.gate_state | title }}</span></dd></div>
       <div><dt>Last plate</dt><dd id="system-last-plate">{{ system.last_plate or 'None' }}</dd></div>
+      <div><dt>Last RFID</dt><dd id="system-last-rfid">{{ system.last_rfid or 'None' }}</dd></div>
       <div><dt>Heartbeat</dt><dd id="system-heartbeat">{{ system.last_heartbeat or 'Not connected' }}</dd></div>
     </dl>
   </aside>
@@ -58,6 +59,7 @@
       </div>
       <div id="latest-photo-details" class="event-photo-details" {% if not latest_event %}hidden{% endif %}>
         <span id="latest-plate" class="plate">{{ latest_event.plate_number if latest_event else '' }}</span>
+        <span id="latest-rfid" class="rfid-value">RFID {{ (latest_event.rfid_number or 'not read') if latest_event else '' }}</span>
         <strong id="latest-owner">{{ latest_event.owner_name or 'Unregistered vehicle' if latest_event else '' }}</strong>
         <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
         <span id="latest-time">{{ latest_event.local_time if latest_event else '' }}</span>
@@ -69,12 +71,12 @@
     <div class="panel-heading"><div><h2>Recent access</h2><p>Latest eight vehicles seen at the gate</p></div><a href="{{ url_for('logs') }}">View all</a></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Time</th><th>Plate</th><th>Owner</th><th>Vehicle</th><th>Decision</th></tr></thead>
+        <thead><tr><th>Time</th><th>Plate / RFID</th><th>Owner</th><th>Vehicle</th><th>Decision</th></tr></thead>
         <tbody id="recent-events-body">
         {% for event in recent_events %}
           <tr>
             <td class="nowrap">{{ event.local_time }}</td>
-            <td><span class="plate">{{ event.plate_number }}</span></td>
+            <td><span class="plate">{{ event.plate_number }}</span><small class="cell-note">RFID {{ event.rfid_number or '—' }}</small></td>
             <td>{{ event.owner_name or 'Unknown vehicle' }}</td>
             <td>{{ [event.make, event.model] | select | join(' ') or event.vehicle_type or '—' }}</td>
             <td><span class="status {{ event.decision }}">{{ event.decision }}</span></td>

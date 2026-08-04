@@ -3,7 +3,8 @@
 The web server uses a native MySQL 8 installation exclusively. There is no
 SQLite runtime, database file, Docker container, or container volume.
 
-The schema contains registered vehicles, access events, dashboard users, audit
+The schema contains registered vehicles, a dedicated `rfid_stickers` registry,
+access events with plate/RFID authorization details, dashboard users, audit
 logs, system status, settings, indexes, foreign keys, constraints, and the
 seven-day activity view. It is safe to apply `schema.sql` more than once.
 

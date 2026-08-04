@@ -13,6 +13,14 @@ No Docker or SQLite is used.
 3. The Pi captures three frames and selects the best detected plate crop.
 4. PP-OCRv5 returns a clean alphanumeric value and uploads it with the crop.
 5. The server checks MySQL, stores the event, and returns authorized or denied.
+
+RFID is optional and is selected during `controller -configure`. With RFID
+disabled, registered-plate authorization works exactly as before. With RFID
+enabled, the controller reads the long-range tag and sends it with the plate.
+An active RFID sticker found in MySQL authorizes the barrier independently of
+the OCR result; a missing, unknown, inactive, or expired RFID keeps it closed.
+Binary sticker values are stored as uppercase hexadecimal without separators,
+for example `3045673030553F9030553F90`.
 6. The dashboard shows the Pi's frame, YOLO, OCR, upload, and total timings.
 7. The dashboard synchronizes automatically without full-page refreshes.
 
@@ -62,6 +70,11 @@ program -start
 `program -update` stops the website, fast-forwards the managed clone from GitHub
 `main`, updates dependencies and the database schema, and restarts it. If an
 update fails, the previous working revision is restored automatically.
+
+The schema update adds a dedicated `rfid_stickers` table without deleting
+existing vehicle or access records. Administrators can assign one unique RFID
+sticker from the vehicle add or edit screen, while both administrators and
+read-only guards can see the tag in the live dashboard and access log.
 
 The macOS service starts whenever the installing user logs in. The Ubuntu service
 starts during boot. Windows requires a separate PowerShell installer and is not

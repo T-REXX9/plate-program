@@ -31,6 +31,8 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from authorization import authorize_plate_and_rfid, normalize_rfid
+
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_DIR / ".env")
@@ -319,15 +321,22 @@ def reader_recognition():
     except ValueError:
         return {"error": "Detector confidence must be numeric."}, 400
     detector_confidence = min(1.0, max(0.0, detector_confidence))
+    rfid_number = normalize_rfid(request.form.get("rfid", ""))
+    if len(rfid_number) > 64:
+        return {"error": "RFID number cannot exceed 64 alphanumeric characters."}, 400
+    rfid_required = request.form.get("rfid_required", "0").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
 
     image = request.files.get("image")
-    if image is None:
+    image_bytes = image.read() if image is not None else b""
+    if image is None and not (rfid_required and rfid_number):
         return {"error": "The enhanced plate crop is required."}, 400
-    image_bytes = image.read()
-    if not image_bytes or len(image_bytes) > app.config["MAX_CONTENT_LENGTH"]:
-        return {"error": "The plate crop is empty or too large."}, 400
-    if not image_bytes.startswith(b"\xff\xd8\xff"):
-        return {"error": "The plate crop must be a JPEG image."}, 400
+    if image is not None:
+        if not image_bytes or len(image_bytes) > app.config["MAX_CONTENT_LENGTH"]:
+            return {"error": "The plate crop is empty or too large."}, 400
+        if not image_bytes.startswith(b"\xff\xd8\xff"):
+            return {"error": "The plate crop must be a JPEG image."}, 400
 
     connection = get_db()
     vehicle = connection.execute(
@@ -340,13 +349,35 @@ def reader_recognition():
         """,
         (plate,),
     ).fetchone()
-    authorized = vehicle is not None
+    rfid_vehicle = None
+    if rfid_required and rfid_number:
+        rfid_vehicle = connection.execute(
+            """
+            SELECT v.id, v.owner_name
+            FROM rfid_stickers r
+            JOIN vehicles v ON v.id = r.vehicle_id
+            WHERE r.sticker_value = ? AND r.is_active = 1
+              AND v.is_active = 1
+              AND (v.registration_expires_on IS NULL
+                   OR v.registration_expires_on >= CURRENT_DATE)
+            LIMIT 1
+            """,
+            (rfid_number,),
+        ).fetchone()
+    authorized, rfid_authorized, authorization_reason = authorize_plate_and_rfid(
+        vehicle["id"] if vehicle else None,
+        rfid_required,
+        rfid_number,
+        rfid_vehicle["id"] if rfid_vehicle else None,
+    )
+    authorized_vehicle = rfid_vehicle if rfid_required else vehicle
     decision = "authorized" if authorized else "denied"
 
     duplicate = connection.execute(
         """
         SELECT id FROM access_events
-        WHERE plate_number = ? AND detected_at >= TIMESTAMPADD(
+        WHERE plate_number = ? AND COALESCE(rfid_number, '') = ?
+          AND detected_at >= TIMESTAMPADD(
             SECOND,
             -CAST(COALESCE((SELECT `value` FROM settings
                 WHERE `key` = 'duplicate_event_seconds'), '30') AS SIGNED),
@@ -354,33 +385,40 @@ def reader_recognition():
         )
         ORDER BY detected_at DESC LIMIT 1
         """,
-        (plate,),
+        (plate, rfid_number),
     ).fetchone()
 
     event_id = duplicate["id"] if duplicate else None
     if duplicate is None:
-        crop_directory = OUTPUT_DIR / "Plate-Crops"
-        crop_directory.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        crop_path = crop_directory / f"{timestamp}-{plate}.jpg"
-        crop_path.write_bytes(image_bytes)
-        temporary_latest = LATEST_CAPTURE_PATH.with_suffix(".tmp.jpg")
-        temporary_latest.write_bytes(image_bytes)
-        temporary_latest.replace(LATEST_CAPTURE_PATH)
-        relative_crop_path = crop_path.relative_to(PROJECT_DIR).as_posix()
+        relative_crop_path = None
+        if image_bytes:
+            crop_directory = OUTPUT_DIR / "Plate-Crops"
+            crop_directory.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            crop_path = crop_directory / f"{timestamp}-{plate}.jpg"
+            crop_path.write_bytes(image_bytes)
+            temporary_latest = LATEST_CAPTURE_PATH.with_suffix(".tmp.jpg")
+            temporary_latest.write_bytes(image_bytes)
+            temporary_latest.replace(LATEST_CAPTURE_PATH)
+            relative_crop_path = crop_path.relative_to(PROJECT_DIR).as_posix()
         cursor = connection.execute(
             """
             INSERT INTO access_events (
-                vehicle_id, plate_number, decision, gate_action,
-                detector_confidence, image_path
-            ) VALUES (?, ?, ?, 'not_requested', ?, ?)
+                vehicle_id, plate_number, rfid_number, rfid_required,
+                rfid_authorized, decision, gate_action,
+                detector_confidence, image_path, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, 'not_requested', ?, ?, ?)
             """,
             (
-                vehicle["id"] if vehicle else None,
+                authorized_vehicle["id"] if authorized_vehicle else None,
                 plate,
+                rfid_number or None,
+                int(rfid_required),
+                int(rfid_authorized),
                 decision,
                 detector_confidence,
                 relative_crop_path,
+                authorization_reason,
             ),
         )
         event_id = cursor.lastrowid
@@ -389,10 +427,11 @@ def reader_recognition():
         """
         UPDATE system_status
         SET camera_state = 'remote', detector_state = 'idle', last_plate = ?,
+            last_rfid = ?,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
         """,
-        (plate,),
+        (plate, rfid_number or None),
     )
     try:
         command_id = int(request.form.get("command_id", "0"))
@@ -406,7 +445,11 @@ def reader_recognition():
                 result_message = ?
             WHERE id = ? AND status IN ('pending', 'active')
             """,
-            (f"Recognized {plate}", command_id),
+            (
+                f"Recognized {plate}"
+                + (f" / RFID {rfid_number}" if rfid_number else ""),
+                command_id,
+            ),
         )
     connection.commit()
     return {
@@ -415,8 +458,12 @@ def reader_recognition():
         "decision": decision,
         "duplicate": duplicate is not None,
         "event_id": event_id,
-        "owner": vehicle["owner_name"] if vehicle else None,
+        "owner": authorized_vehicle["owner_name"] if authorized_vehicle else None,
         "plate": plate,
+        "rfid": rfid_number or None,
+        "rfid_required": rfid_required,
+        "rfid_authorized": rfid_authorized,
+        "authorization_reason": authorization_reason,
     }
 
 
@@ -539,7 +586,7 @@ def load_dashboard_state() -> dict[str, Any]:
     ).fetchone()
     recent_events = connection.execute(
         """
-        SELECT e.id, e.plate_number, e.decision, e.gate_action,
+        SELECT e.id, e.plate_number, e.rfid_number, e.decision, e.gate_action,
                DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
                v.owner_name, v.vehicle_type, v.make, v.model
         FROM access_events e
@@ -550,7 +597,8 @@ def load_dashboard_state() -> dict[str, Any]:
     ).fetchall()
     latest_event = connection.execute(
         """
-        SELECT e.id, e.plate_number, e.decision,
+        SELECT e.id, e.plate_number, e.rfid_number, e.rfid_required,
+               e.rfid_authorized, e.decision,
                DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
                v.owner_name
         FROM access_events e
@@ -579,7 +627,7 @@ def load_dashboard_state() -> dict[str, Any]:
     ).fetchall()
     system = connection.execute(
         """
-        SELECT id, camera_state, detector_state, gate_state, last_plate,
+        SELECT id, camera_state, detector_state, gate_state, last_plate, last_rfid,
                DATE_FORMAT(last_heartbeat, '%Y-%m-%d %H:%i:%s') AS last_heartbeat,
                DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
         FROM system_status WHERE id = 1
@@ -639,6 +687,7 @@ def dashboard_sync():
             "detector_state": system["detector_state"],
             "gate_state": system["gate_state"],
             "last_plate": system["last_plate"],
+            "last_rfid": system["last_rfid"],
             "last_heartbeat": system["last_heartbeat"],
         },
     }
@@ -702,15 +751,31 @@ def vehicles():
         wildcard = f"%{query}%"
         records = get_db().execute(
             """
-            SELECT * FROM vehicles
-            WHERE plate_number LIKE ? OR owner_name LIKE ? OR make LIKE ? OR model LIKE ?
-            ORDER BY is_active DESC, plate_number
+            SELECT v.*,
+                   (SELECT r.sticker_value FROM rfid_stickers r
+                    WHERE r.vehicle_id = v.id AND r.is_active = 1
+                    ORDER BY r.id LIMIT 1) AS rfid_number
+            FROM vehicles v
+            WHERE v.plate_number LIKE ? OR v.owner_name LIKE ?
+               OR v.make LIKE ? OR v.model LIKE ?
+               OR EXISTS (
+                   SELECT 1 FROM rfid_stickers r
+                   WHERE r.vehicle_id = v.id AND r.sticker_value LIKE ?
+               )
+            ORDER BY v.is_active DESC, v.plate_number
             """,
-            (wildcard, wildcard, wildcard, wildcard),
+            (wildcard, wildcard, wildcard, wildcard, wildcard),
         ).fetchall()
     else:
         records = get_db().execute(
-            "SELECT * FROM vehicles ORDER BY is_active DESC, plate_number"
+            """
+            SELECT v.*,
+                   (SELECT r.sticker_value FROM rfid_stickers r
+                    WHERE r.vehicle_id = v.id AND r.is_active = 1
+                    ORDER BY r.id LIMIT 1) AS rfid_number
+            FROM vehicles v
+            ORDER BY v.is_active DESC, v.plate_number
+            """
         ).fetchall()
     return render_template("vehicles.html", vehicles=records, query=query)
 
@@ -727,9 +792,11 @@ def vehicle_form_values() -> dict[str, str]:
         "registration_expires_on",
         "photo_path",
         "notes",
+        "rfid_number",
     )
     values = {field: request.form.get(field, "").strip() for field in fields}
     values["plate_number"] = normalize_plate(request.form.get("plate_number", ""))
+    values["rfid_number"] = normalize_rfid(values["rfid_number"])
     return values
 
 
@@ -741,6 +808,8 @@ def vehicle_new():
         values = vehicle_form_values()
         if not values["plate_number"] or not values["owner_name"]:
             flash("Plate number and owner name are required.", "error")
+        elif values["rfid_number"] and not 4 <= len(values["rfid_number"]) <= 64:
+            flash("RFID sticker value must contain 4 to 64 letters or digits.", "error")
         else:
             try:
                 connection = get_db()
@@ -756,12 +825,17 @@ def vehicle_new():
                         "contact_number", "email", "registration_expires_on", "photo_path", "notes"
                     )),
                 )
+                if values["rfid_number"]:
+                    connection.execute(
+                        "INSERT INTO rfid_stickers (vehicle_id, sticker_value) VALUES (?, ?)",
+                        (cursor.lastrowid, values["rfid_number"]),
+                    )
                 record_audit("create_vehicle", "vehicle", cursor.lastrowid, values["plate_number"])
                 connection.commit()
                 flash(f'{values["plate_number"]} was registered successfully.', "success")
                 return redirect(url_for("vehicles"))
             except IntegrityError:
-                flash("That plate number is already registered or is invalid.", "error")
+                flash("That plate or RFID sticker is already registered or is invalid.", "error")
     return render_template("vehicle_form.html", vehicle=values, editing=False)
 
 
@@ -769,12 +843,27 @@ def vehicle_new():
 @role_required("administrator")
 def vehicle_edit(vehicle_id: int):
     connection = get_db()
-    existing = connection.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
+    existing = connection.execute(
+        """
+        SELECT v.*,
+               (SELECT r.sticker_value FROM rfid_stickers r
+                WHERE r.vehicle_id = v.id AND r.is_active = 1
+                ORDER BY r.id LIMIT 1) AS rfid_number
+        FROM vehicles v WHERE v.id = ?
+        """,
+        (vehicle_id,),
+    ).fetchone()
     if existing is None:
         abort(404)
     values: dict[str, Any] = dict(existing)
     if request.method == "POST":
         values = vehicle_form_values()
+        if not values["plate_number"] or not values["owner_name"]:
+            flash("Plate number and owner name are required.", "error")
+            return render_template("vehicle_form.html", vehicle=values, editing=True)
+        if values["rfid_number"] and not 4 <= len(values["rfid_number"]) <= 64:
+            flash("RFID sticker value must contain 4 to 64 letters or digits.", "error")
+            return render_template("vehicle_form.html", vehicle=values, editing=True)
         try:
             connection.execute(
                 """
@@ -789,12 +878,18 @@ def vehicle_edit(vehicle_id: int):
                     "contact_number", "email", "registration_expires_on", "photo_path", "notes"
                 )) + (vehicle_id,),
             )
+            connection.execute("DELETE FROM rfid_stickers WHERE vehicle_id = ?", (vehicle_id,))
+            if values["rfid_number"]:
+                connection.execute(
+                    "INSERT INTO rfid_stickers (vehicle_id, sticker_value) VALUES (?, ?)",
+                    (vehicle_id, values["rfid_number"]),
+                )
             record_audit("update_vehicle", "vehicle", vehicle_id, values["plate_number"])
             connection.commit()
             flash("Vehicle details updated.", "success")
             return redirect(url_for("vehicles"))
         except IntegrityError:
-            flash("That plate number is already registered or is invalid.", "error")
+            flash("That plate or RFID sticker is already registered or is invalid.", "error")
     return render_template("vehicle_form.html", vehicle=values, editing=True)
 
 
@@ -959,7 +1054,8 @@ def logs_export():
     records = get_db().execute(
         f"""
         SELECT DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
-               e.plate_number, coalesce(v.owner_name, 'Unknown') AS owner_name,
+               e.plate_number, coalesce(e.rfid_number, '') AS rfid_number,
+               coalesce(v.owner_name, 'Unknown') AS owner_name,
                coalesce(v.vehicle_type, '') AS vehicle_type,
                coalesce(v.make, '') AS make, coalesce(v.model, '') AS model,
                e.direction, e.decision, e.gate_action,
@@ -974,7 +1070,7 @@ def logs_export():
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "Timestamp", "Plate", "Owner", "Vehicle type", "Make", "Model",
+        "Timestamp", "Plate", "RFID", "Owner", "Vehicle type", "Make", "Model",
         "Direction", "Decision", "Gate action", "Detector confidence",
         "OCR confidence", "Image path",
     ])

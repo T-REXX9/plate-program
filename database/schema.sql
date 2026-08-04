@@ -21,10 +21,31 @@ CREATE TABLE IF NOT EXISTS vehicles (
     CONSTRAINT chk_vehicles_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS rfid_stickers (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    vehicle_id BIGINT UNSIGNED NOT NULL,
+    sticker_value VARCHAR(64) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_rfid_stickers_value (sticker_value),
+    KEY idx_rfid_stickers_vehicle (vehicle_id, is_active),
+    CONSTRAINT fk_rfid_stickers_vehicle FOREIGN KEY (vehicle_id)
+        REFERENCES vehicles(id) ON DELETE CASCADE,
+    CONSTRAINT chk_rfid_stickers_value CHECK (
+        sticker_value REGEXP '^[A-Z0-9]{4,64}$'
+    ),
+    CONSTRAINT chk_rfid_stickers_active CHECK (is_active IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE IF NOT EXISTS access_events (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     vehicle_id BIGINT UNSIGNED NULL,
     plate_number VARCHAR(20) NOT NULL,
+    rfid_number VARCHAR(64) NULL,
+    rfid_required TINYINT(1) NOT NULL DEFAULT 0,
+    rfid_authorized TINYINT(1) NOT NULL DEFAULT 0,
     direction ENUM('entry', 'exit') NOT NULL DEFAULT 'entry',
     decision ENUM('authorized', 'denied', 'unreadable', 'manual') NOT NULL,
     gate_action ENUM('opened', 'kept_closed', 'not_requested', 'error') NOT NULL DEFAULT 'kept_closed',
@@ -36,6 +57,7 @@ CREATE TABLE IF NOT EXISTS access_events (
     PRIMARY KEY (id),
     KEY idx_access_events_detected_at (detected_at DESC),
     KEY idx_access_events_plate (plate_number, detected_at DESC),
+    KEY idx_access_events_rfid (rfid_number, detected_at DESC),
     KEY idx_access_events_decision (decision, detected_at DESC),
     CONSTRAINT fk_access_events_vehicle FOREIGN KEY (vehicle_id)
         REFERENCES vehicles(id) ON DELETE SET NULL,
@@ -44,7 +66,9 @@ CREATE TABLE IF NOT EXISTS access_events (
     ),
     CONSTRAINT chk_access_ocr_confidence CHECK (
         ocr_confidence IS NULL OR ocr_confidence BETWEEN 0.0 AND 1.0
-    )
+    ),
+    CONSTRAINT chk_access_rfid_required CHECK (rfid_required IN (0, 1)),
+    CONSTRAINT chk_access_rfid_authorized CHECK (rfid_authorized IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -100,6 +124,7 @@ CREATE TABLE IF NOT EXISTS system_status (
     detector_state VARCHAR(40) NOT NULL DEFAULT 'unknown',
     gate_state VARCHAR(40) NOT NULL DEFAULT 'closed',
     last_plate VARCHAR(20) NULL,
+    last_rfid VARCHAR(64) NULL,
     last_heartbeat TIMESTAMP NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

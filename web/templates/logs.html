@@ -18,12 +18,13 @@
   <div class="result-count">{{ total }} event{{ '' if total == 1 else 's' }}</div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Timestamp</th><th>Plate</th><th>Person / vehicle</th><th>Direction</th><th>Decision</th><th>Gate</th><th>Snapshot</th></tr></thead>
+      <thead><tr><th>Timestamp</th><th>Plate</th><th>RFID</th><th>Person / vehicle</th><th>Direction</th><th>Decision</th><th>Gate</th><th>Snapshot</th></tr></thead>
       <tbody>
       {% for event in events %}
         <tr>
           <td class="nowrap">{{ event.local_time }}</td>
           <td><span class="plate">{{ event.plate_number }}</span></td>
+          <td><span class="rfid-value">{{ event.rfid_number or '—' }}</span></td>
           <td><strong>{{ event.owner_name or 'Unknown vehicle' }}</strong><small class="cell-note">{{ [event.color, event.make, event.model] | select | join(' ') or event.vehicle_type or '' }}</small></td>
           <td>{{ event.direction | title }}</td>
           <td><span class="status {{ event.decision }}">{{ event.decision }}</span></td>
@@ -31,7 +32,7 @@
           <td>{% if event.image_path %}<a href="{{ url_for('event_image', event_id=event.id) }}" target="_blank" rel="noopener">View</a>{% else %}—{% endif %}</td>
         </tr>
       {% else %}
-        <tr><td colspan="7"><div class="empty-state"><strong>No matching events</strong><span>Try changing the filters or wait for the first recognition.</span></div></td></tr>
+        <tr><td colspan="8"><div class="empty-state"><strong>No matching events</strong><span>Try changing the filters or wait for the first recognition.</span></div></td></tr>
       {% endfor %}
       </tbody>
     </table>

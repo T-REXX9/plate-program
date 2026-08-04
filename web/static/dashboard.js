@@ -81,6 +81,7 @@
     }
     image.alt = `Enhanced crop of plate ${event.plate_number}`;
     text("latest-plate", event.plate_number);
+    text("latest-rfid", `RFID ${event.rfid_number || "not read"}`);
     text("latest-owner", event.owner_name || "Unregistered vehicle");
     text("latest-time", event.local_time);
     if (timingLabel) {
@@ -140,7 +141,10 @@
       timeCell.textContent = event.local_time;
       plate.className = "plate";
       plate.textContent = event.plate_number;
-      plateCell.append(plate);
+      const rfid = document.createElement("small");
+      rfid.className = "cell-note";
+      rfid.textContent = `RFID ${event.rfid_number || "—"}`;
+      plateCell.append(plate, rfid);
       ownerCell.textContent = event.owner_name || "Unknown vehicle";
       vehicleCell.textContent = event.vehicle || "—";
       decisionCell.append(statusBadge(event.decision));
@@ -183,6 +187,7 @@
     text("system-detector", titleCase(data.system.detector_state));
     text("system-gate", titleCase(data.system.gate_state));
     text("system-last-plate", data.system.last_plate || "None");
+    text("system-last-rfid", data.system.last_rfid || "None");
     text("system-heartbeat", data.system.last_heartbeat || "Not connected");
     indicator("camera-indicator", data.system.camera_running ? "online" : "offline");
     indicator(

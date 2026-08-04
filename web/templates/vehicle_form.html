@@ -10,6 +10,7 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <fieldset><legend>Identification</legend><div class="form-grid">
     <label>Plate number <span>*</span><input name="plate_number" value="{{ vehicle.plate_number or '' }}" maxlength="20" placeholder="ABC1234" required></label>
+    <label>RFID sticker value<input name="rfid_number" value="{{ vehicle.rfid_number or '' }}" maxlength="64" placeholder="Read from the long-range RFID sticker"></label>
     <label>Owner name <span>*</span><input name="owner_name" value="{{ vehicle.owner_name or '' }}" required></label>
     <label>Vehicle type<select name="vehicle_type"><option value="">Select type</option>{% for type in ['Car','SUV','Van','Truck','Motorcycle','Bus','Other'] %}<option {{ 'selected' if vehicle.vehicle_type == type else '' }}>{{ type }}</option>{% endfor %}</select></label>
     <label>Color<input name="color" value="{{ vehicle.color or '' }}"></label>
