@@ -368,7 +368,9 @@ def reader_recognition():
     for upload_error in (image_error, raw_frame_error, annotated_frame_error):
         if upload_error is not None:
             return upload_error
-    if image is None and not (rfid_required and rfid_number):
+    has_display_frame = bool(raw_frame_bytes or annotated_frame_bytes)
+    is_no_plate_capture = plate == "UNREADABLE" and has_display_frame
+    if image is None and not (is_no_plate_capture or (rfid_required and rfid_number)):
         return {"error": "The enhanced plate crop is required."}, 400
 
     connection = get_db()
@@ -406,7 +408,7 @@ def reader_recognition():
     authorized_vehicle = rfid_vehicle if rfid_required else vehicle
     decision = "authorized" if authorized else "denied"
 
-    duplicate = connection.execute(
+    duplicate = None if is_no_plate_capture else connection.execute(
         """
         SELECT id FROM access_events
         WHERE plate_number = ? AND COALESCE(rfid_number, '') = ?
@@ -426,16 +428,19 @@ def reader_recognition():
         relative_crop_path = None
         relative_raw_frame_path = None
         relative_annotated_frame_path = None
-        if image_bytes:
+        if image_bytes or raw_frame_bytes or annotated_frame_bytes:
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             filename = f"{timestamp}-{plate}.jpg"
-            relative_crop_path = store_event_image("Plate-Crops", filename, image_bytes)
+            relative_crop_path = store_event_image(
+                "Plate-Crops", filename, image_bytes
+            )
             relative_raw_frame_path = store_event_image(
                 "Raw-Frames", filename, raw_frame_bytes
             )
             relative_annotated_frame_path = store_event_image(
                 "Annotated-Frames", filename, annotated_frame_bytes
             )
+        if image_bytes:
             temporary_latest = LATEST_CAPTURE_PATH.with_suffix(".tmp.jpg")
             temporary_latest.write_bytes(image_bytes)
             temporary_latest.replace(LATEST_CAPTURE_PATH)
