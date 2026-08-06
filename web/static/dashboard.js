@@ -4,6 +4,10 @@
   const POLL_INTERVAL_MS = 2000;
   let timer = null;
   let syncing = false;
+  let latestEvent = null;
+  let frameKind = window.localStorage.getItem("plate-frame-kind") === "raw"
+    ? "raw"
+    : "annotated";
 
   const byId = (id) => document.getElementById(id);
   const text = (id, value) => {
@@ -54,32 +58,67 @@
     return value >= 1000 ? `${(value / 1000).toFixed(2)} s` : `${value} ms`;
   };
 
+  function updateFrameSelector() {
+    document.querySelectorAll(".frame-option").forEach((button) => {
+      const selected = button.dataset.frameKind === frameKind;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+    text("latest-photo-title", frameKind === "raw" ? "Latest raw frame" : "Latest annotated frame");
+    text(
+      "latest-photo-subtitle",
+      frameKind === "raw"
+        ? "Original camera view before plate annotation"
+        : "Vehicle frame with the detected plate marked",
+    );
+  }
+
+  function showSelectedFrame() {
+    updateFrameSelector();
+    if (!latestEvent) return;
+    const frame = byId("latest-photo-frame");
+    const image = byId("latest-photo");
+    if (!frame || !image) return;
+    const eventId = String(latestEvent.id);
+    const imageVersion = String(latestEvent.image_version || latestEvent.id);
+    const imageUrl = latestEvent.frame_urls?.[frameKind] || latestEvent.image_url;
+    const displayKey = `${eventId}:${frameKind}:${imageVersion}`;
+    if (frame.dataset.displayKey !== displayKey && imageUrl) {
+      frame.dataset.displayKey = displayKey;
+      image.src = `${imageUrl}?v=${encodeURIComponent(imageVersion)}`;
+    }
+    image.alt = frameKind === "raw"
+      ? `Raw vehicle frame for plate ${latestEvent.plate_number}`
+      : `Annotated vehicle frame for plate ${latestEvent.plate_number}`;
+  }
+
   function updateLatest(event, timing) {
     const frame = byId("latest-photo-frame");
     const image = byId("latest-photo");
     const details = byId("latest-photo-details");
     const placeholder = byId("latest-photo-placeholder");
     const decision = byId("latest-decision");
+    const accessLed = byId("latest-access-led");
     const timingLabel = byId("latest-timing");
     if (!frame || !image || !details || !placeholder || !decision) return;
 
     if (!event) {
+      latestEvent = null;
       frame.hidden = true;
       details.hidden = true;
       decision.hidden = true;
       placeholder.hidden = false;
       if (timingLabel) timingLabel.hidden = true;
+      if (accessLed) {
+        accessLed.className = "access-led neutral";
+        accessLed.setAttribute("aria-label", "No access result yet");
+        accessLed.title = "No access result yet";
+      }
       return;
     }
 
-    const eventId = String(event.id);
-    const imageVersion = String(event.image_version || event.id);
-    if (frame.dataset.eventId !== eventId || frame.dataset.imageVersion !== imageVersion) {
-      frame.dataset.eventId = eventId;
-      frame.dataset.imageVersion = imageVersion;
-      image.src = `${event.image_url}?v=${encodeURIComponent(imageVersion)}`;
-    }
-    image.alt = `Enhanced crop of plate ${event.plate_number}`;
+    latestEvent = event;
+    showSelectedFrame();
     text("latest-plate", event.plate_number);
     text("latest-rfid", `RFID ${event.rfid_number || "not read"}`);
     text("latest-owner", event.owner_name || "Unregistered vehicle");
@@ -94,6 +133,12 @@
     decision.className = `status ${String(event.decision || "").toLowerCase()}`;
     decision.textContent = event.decision;
     decision.hidden = false;
+    if (accessLed) {
+      const ledState = event.decision === "authorized" ? "authorized" : "denied";
+      accessLed.className = `access-led ${ledState}`;
+      accessLed.setAttribute("aria-label", `Latest access ${event.decision}`);
+      accessLed.title = `Latest access: ${event.decision}`;
+    }
     frame.hidden = false;
     details.hidden = false;
     placeholder.hidden = true;
@@ -234,6 +279,17 @@
     });
   }
 
+  function setupFrameSelector() {
+    document.querySelectorAll(".frame-option").forEach((button) => {
+      button.addEventListener("click", () => {
+        frameKind = button.dataset.frameKind === "raw" ? "raw" : "annotated";
+        window.localStorage.setItem("plate-frame-kind", frameKind);
+        showSelectedFrame();
+      });
+    });
+    updateFrameSelector();
+  }
+
   async function sync() {
     if (syncing || document.hidden) return schedule();
     syncing = true;
@@ -266,5 +322,6 @@
     if (!document.hidden) sync();
   });
   setupCaptureForm();
+  setupFrameSelector();
   sync();
 })();

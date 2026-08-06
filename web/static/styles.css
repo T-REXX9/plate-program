@@ -99,6 +99,14 @@ button { cursor: pointer; }
 .full-panel { grid-column: 1 / -1; }
 .event-photo-frame { display: grid; place-items: center; width: min(100%, 800px); margin: 24px auto 0; overflow: hidden; border-radius: 12px; background: #090d0a; }
 .event-photo-frame img { display: block; width: 100%; height: auto; }
+.capture-heading-actions { display: flex; align-items: center; gap: 10px; }
+.frame-selector { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: #f3f6f2; }
+.frame-option { min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 800; }
+.frame-option.active { background: white; color: var(--green-dark); box-shadow: 0 2px 8px rgba(30,54,39,.12); }
+.access-led { display: inline-block; flex: 0 0 auto; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.9); border-radius: 50%; background: #8a938c; box-shadow: 0 0 0 1px #7d867f, 0 0 8px rgba(77,88,80,.35); }
+.access-led.authorized { background: #28c267; box-shadow: 0 0 0 1px #168447, 0 0 12px rgba(40,194,103,.7); }
+.access-led.denied { background: #e14848; box-shadow: 0 0 0 1px #a32929, 0 0 12px rgba(225,72,72,.7); }
+.access-led.neutral { background: #8a938c; }
 .event-photo-details { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 18px 24px 24px; color: var(--muted); font-size: 12px; }
 .event-photo-details strong { color: var(--ink); font-size: 14px; }
 .capture-timing { padding: 4px 7px; border-radius: 999px; background: var(--blue-soft); color: #365778; font-weight: 800; white-space: nowrap; }
@@ -356,6 +364,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--green); box-shad
   .dashboard-page .event-photo-panel .panel-heading {
     flex: 0 0 auto; padding: 7px 9px;
   }
+  .dashboard-page .capture-heading-actions { gap: 5px; }
+  .dashboard-page .frame-selector { padding: 2px; }
+  .dashboard-page .frame-option { min-height: 24px; padding: 0 7px; font-size: 8px; }
+  .dashboard-page .access-led { width: 12px; height: 12px; }
   .dashboard-page .event-photo-panel .panel-heading h2 { margin: 0; font-size: 12px; }
   .dashboard-page .event-photo-panel .panel-heading p { display: none; }
   .dashboard-page .event-photo-panel .status { padding: 3px 6px; font-size: 8px; }

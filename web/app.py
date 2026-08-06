@@ -57,8 +57,12 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=60 * 60 * 8,
-    MAX_CONTENT_LENGTH=2 * 1024 * 1024,
+    # One enhanced crop plus two optional 4K JPEG frames from the controller.
+    MAX_CONTENT_LENGTH=24 * 1024 * 1024,
 )
+
+MAX_CROP_BYTES = 4 * 1024 * 1024
+MAX_FRAME_BYTES = 10 * 1024 * 1024
 
 
 def mysql_options() -> dict[str, Any]:
@@ -139,6 +143,30 @@ def admin_exists() -> bool:
 
 def normalize_plate(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", value.upper())
+
+
+def uploaded_jpeg(field_name: str, label: str, maximum_bytes: int):
+    upload = request.files.get(field_name)
+    if upload is None:
+        return None, b"", None
+    contents = upload.read()
+    if not contents or len(contents) > maximum_bytes:
+        return upload, b"", ({"error": f"The {label} is empty or too large."}, 400)
+    if not contents.startswith(b"\xff\xd8\xff"):
+        return upload, b"", ({"error": f"The {label} must be a JPEG image."}, 400)
+    return upload, contents, None
+
+
+def store_event_image(directory_name: str, filename: str, contents: bytes) -> str | None:
+    if not contents:
+        return None
+    directory = OUTPUT_DIR / directory_name
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / filename
+    temporary = destination.with_suffix(".tmp.jpg")
+    temporary.write_bytes(contents)
+    temporary.replace(destination)
+    return destination.relative_to(PROJECT_DIR).as_posix()
 
 
 def environment_flag(name: str, default: bool = False) -> bool:
@@ -328,15 +356,20 @@ def reader_recognition():
         "1", "true", "yes", "on"
     }
 
-    image = request.files.get("image")
-    image_bytes = image.read() if image is not None else b""
+    image, image_bytes, image_error = uploaded_jpeg(
+        "image", "enhanced plate crop", MAX_CROP_BYTES
+    )
+    _, raw_frame_bytes, raw_frame_error = uploaded_jpeg(
+        "raw_frame", "raw camera frame", MAX_FRAME_BYTES
+    )
+    _, annotated_frame_bytes, annotated_frame_error = uploaded_jpeg(
+        "annotated_frame", "annotated camera frame", MAX_FRAME_BYTES
+    )
+    for upload_error in (image_error, raw_frame_error, annotated_frame_error):
+        if upload_error is not None:
+            return upload_error
     if image is None and not (rfid_required and rfid_number):
         return {"error": "The enhanced plate crop is required."}, 400
-    if image is not None:
-        if not image_bytes or len(image_bytes) > app.config["MAX_CONTENT_LENGTH"]:
-            return {"error": "The plate crop is empty or too large."}, 400
-        if not image_bytes.startswith(b"\xff\xd8\xff"):
-            return {"error": "The plate crop must be a JPEG image."}, 400
 
     connection = get_db()
     vehicle = connection.execute(
@@ -391,23 +424,29 @@ def reader_recognition():
     event_id = duplicate["id"] if duplicate else None
     if duplicate is None:
         relative_crop_path = None
+        relative_raw_frame_path = None
+        relative_annotated_frame_path = None
         if image_bytes:
-            crop_directory = OUTPUT_DIR / "Plate-Crops"
-            crop_directory.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-            crop_path = crop_directory / f"{timestamp}-{plate}.jpg"
-            crop_path.write_bytes(image_bytes)
+            filename = f"{timestamp}-{plate}.jpg"
+            relative_crop_path = store_event_image("Plate-Crops", filename, image_bytes)
+            relative_raw_frame_path = store_event_image(
+                "Raw-Frames", filename, raw_frame_bytes
+            )
+            relative_annotated_frame_path = store_event_image(
+                "Annotated-Frames", filename, annotated_frame_bytes
+            )
             temporary_latest = LATEST_CAPTURE_PATH.with_suffix(".tmp.jpg")
             temporary_latest.write_bytes(image_bytes)
             temporary_latest.replace(LATEST_CAPTURE_PATH)
-            relative_crop_path = crop_path.relative_to(PROJECT_DIR).as_posix()
         cursor = connection.execute(
             """
             INSERT INTO access_events (
                 vehicle_id, plate_number, rfid_number, rfid_required,
                 rfid_authorized, decision, gate_action,
-                detector_confidence, image_path, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, 'not_requested', ?, ?, ?)
+                detector_confidence, image_path, raw_image_path,
+                annotated_image_path, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, 'not_requested', ?, ?, ?, ?, ?)
             """,
             (
                 authorized_vehicle["id"] if authorized_vehicle else None,
@@ -418,6 +457,8 @@ def reader_recognition():
                 decision,
                 detector_confidence,
                 relative_crop_path,
+                relative_raw_frame_path,
+                relative_annotated_frame_path,
                 authorization_reason,
             ),
         )
@@ -598,12 +639,15 @@ def load_dashboard_state() -> dict[str, Any]:
     latest_event = connection.execute(
         """
         SELECT e.id, e.plate_number, e.rfid_number, e.rfid_required,
-               e.rfid_authorized, e.decision,
+               e.rfid_authorized, e.decision, e.image_path,
+               e.raw_image_path, e.annotated_image_path,
                DATE_FORMAT(e.detected_at, '%Y-%m-%d %H:%i:%s') AS local_time,
                v.owner_name
         FROM access_events e
         LEFT JOIN vehicles v ON v.id = e.vehicle_id
-        WHERE e.image_path IS NOT NULL AND e.image_path != ''
+        WHERE (e.image_path IS NOT NULL AND e.image_path != '')
+           OR (e.raw_image_path IS NOT NULL AND e.raw_image_path != '')
+           OR (e.annotated_image_path IS NOT NULL AND e.annotated_image_path != '')
         ORDER BY e.detected_at DESC
         LIMIT 1
         """
@@ -661,12 +705,14 @@ def dashboard_sync():
     summary = dict(state["summary"])
     latest = dict(state["latest_event"]) if state["latest_event"] else None
     if latest is not None:
-        if state["latest_capture_version"] is not None:
-            latest["image_url"] = url_for("latest_capture_image")
-            latest["image_version"] = state["latest_capture_version"]
-        else:
-            latest["image_url"] = url_for("event_image", event_id=latest["id"])
-            latest["image_version"] = latest["id"]
+        latest["frame_urls"] = {
+            "raw": url_for("event_frame", event_id=latest["id"], variant="raw"),
+            "annotated": url_for(
+                "event_frame", event_id=latest["id"], variant="annotated"
+            ),
+        }
+        latest["image_url"] = latest["frame_urls"]["annotated"]
+        latest["image_version"] = latest["id"]
     recent = []
     for row in state["recent_events"]:
         event = dict(row)
@@ -1101,6 +1147,38 @@ def event_image(event_id: int):
     if not image_path.is_file():
         abort(404)
     return send_file(image_path)
+
+
+@app.route("/events/<int:event_id>/frame/<variant>")
+@login_required
+def event_frame(event_id: int, variant: str):
+    if variant not in {"raw", "annotated"}:
+        abort(404)
+    event = get_db().execute(
+        """
+        SELECT image_path, raw_image_path, annotated_image_path
+        FROM access_events WHERE id = ?
+        """,
+        (event_id,),
+    ).fetchone()
+    if event is None:
+        abort(404)
+    selected_path = event[f"{variant}_image_path"] or event["image_path"]
+    if not selected_path:
+        abort(404)
+    image_path = Path(selected_path)
+    if not image_path.is_absolute():
+        image_path = PROJECT_DIR / image_path
+    image_path = image_path.resolve()
+    try:
+        image_path.relative_to(PROJECT_DIR.resolve())
+    except ValueError:
+        abort(403)
+    if not image_path.is_file():
+        abort(404)
+    response = send_file(image_path, max_age=0)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/latest-plate-crop.jpg")

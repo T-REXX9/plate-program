@@ -21,8 +21,13 @@ An active RFID sticker found in MySQL authorizes the barrier independently of
 the OCR result; a missing, unknown, inactive, or expired RFID keeps it closed.
 Binary sticker values are stored as uppercase hexadecimal without separators,
 for example `3045673030553F9030553F90`.
-6. The dashboard shows the Pi's frame, YOLO, OCR, upload, and total timings.
-7. The dashboard synchronizes automatically without full-page refreshes.
+6. The Pi uploads the raw camera frame and an annotated copy containing the
+   detected plate box. The dashboard can switch between them without another
+   capture; the Pi continues storing only the enhanced crop locally.
+7. A green/red LED-style indicator shows whether the latest access result was
+   authorized or denied, alongside the Pi's frame, YOLO, OCR, upload, and total
+   timings.
+8. The dashboard synchronizes automatically without full-page refreshes.
 
 ## One-time installation
 

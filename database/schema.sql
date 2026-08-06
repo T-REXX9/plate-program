@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS access_events (
     detector_confidence DECIMAL(6,5) NULL,
     ocr_confidence DECIMAL(6,5) NULL,
     image_path VARCHAR(500) NULL,
+    raw_image_path VARCHAR(500) NULL,
+    annotated_image_path VARCHAR(500) NULL,
     notes TEXT NULL,
     detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

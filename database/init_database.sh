@@ -72,6 +72,8 @@ ensure_index() {
 ensure_column access_events rfid_number 'VARCHAR(64) NULL AFTER plate_number'
 ensure_column access_events rfid_required 'TINYINT(1) NOT NULL DEFAULT 0 AFTER rfid_number'
 ensure_column access_events rfid_authorized 'TINYINT(1) NOT NULL DEFAULT 0 AFTER rfid_required'
+ensure_column access_events raw_image_path 'VARCHAR(500) NULL AFTER image_path'
+ensure_column access_events annotated_image_path 'VARCHAR(500) NULL AFTER raw_image_path'
 ensure_column system_status last_rfid 'VARCHAR(64) NULL AFTER last_plate'
 ensure_index access_events idx_access_events_rfid 'KEY idx_access_events_rfid (rfid_number, detected_at DESC)'
 
