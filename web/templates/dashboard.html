@@ -16,19 +16,7 @@
   </div>{% endif %}
 </div>
 
-<div class="top-status-grid">
-  <aside class="panel system-panel">
-    <div class="panel-heading"><div><h2>Reader status</h2><p>Latest report from the Raspberry Pi</p></div></div>
-    <dl class="status-list">
-      <div><dt>Connection</dt><dd><span id="camera-indicator" class="indicator {{ 'online' if system.camera_state == 'remote' else 'offline' }}"></span><span id="system-camera">{{ system.camera_state | title }}</span></dd></div>
-      <div><dt>Reader</dt><dd><span id="detector-indicator" class="indicator {{ 'online' if system.detector_state in ['idle', 'queued', 'active'] else 'offline' }}"></span><span id="system-detector">{{ system.detector_state | title }}</span></dd></div>
-      <div><dt>Gate</dt><dd><span id="gate-indicator" class="indicator {{ 'online' if system.gate_state == 'open' else 'neutral' }}"></span><span id="system-gate">{{ system.gate_state | title }}</span></dd></div>
-      <div><dt>Last plate</dt><dd id="system-last-plate">{{ system.last_plate or 'None' }}</dd></div>
-      <div><dt>Last RFID</dt><dd id="system-last-rfid">{{ system.last_rfid or 'None' }}</dd></div>
-      <div><dt>Heartbeat</dt><dd id="system-heartbeat">{{ system.last_heartbeat or 'Not connected' }}</dd></div>
-    </dl>
-  </aside>
-
+<div class="top-status-grid activity-only">
   <section class="panel activity-panel">
     <div class="panel-heading"><div><h2>Seven-day activity</h2><p>Daily authorized and denied events</p></div></div>
     <div class="day-grid" id="daily-activity">

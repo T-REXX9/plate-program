@@ -43,6 +43,13 @@ for timing_column in frames_ms yolo_ms ocr_ms server_ms total_ms; do
     fi
 done
 
+MYSQL_PWD="$MYSQL_PASSWORD" "${mysql_command[@]}" --execute="
+    ALTER TABLE reader_commands MODIFY command_type ENUM(
+        'capture', 'barrier_open', 'barrier_close',
+        'traffic_red', 'traffic_green', 'rfid_serial'
+    ) NOT NULL DEFAULT 'capture'
+"
+
 ensure_column() {
     local table="$1"
     local column="$2"
@@ -70,11 +77,25 @@ ensure_index() {
 }
 
 ensure_column access_events rfid_number 'VARCHAR(64) NULL AFTER plate_number'
+ensure_column reader_commands serial_tx_hex 'VARCHAR(1024) NULL AFTER result_message'
+ensure_column reader_commands serial_baud 'INT UNSIGNED NULL AFTER serial_tx_hex'
+ensure_column reader_commands serial_data_bits 'TINYINT UNSIGNED NULL AFTER serial_baud'
+ensure_column reader_commands serial_parity 'CHAR(1) NULL AFTER serial_data_bits'
+ensure_column reader_commands serial_stop_bits 'TINYINT UNSIGNED NULL AFTER serial_parity'
+ensure_column reader_commands serial_timeout_ms 'INT UNSIGNED NULL AFTER serial_stop_bits'
+ensure_column reader_commands response_data 'TEXT NULL AFTER serial_timeout_ms'
 ensure_column access_events rfid_required 'TINYINT(1) NOT NULL DEFAULT 0 AFTER rfid_number'
 ensure_column access_events rfid_authorized 'TINYINT(1) NOT NULL DEFAULT 0 AFTER rfid_required'
 ensure_column access_events raw_image_path 'VARCHAR(500) NULL AFTER image_path'
 ensure_column access_events annotated_image_path 'VARCHAR(500) NULL AFTER raw_image_path'
 ensure_column system_status last_rfid 'VARCHAR(64) NULL AFTER last_plate'
+ensure_column system_status camera_connected 'TINYINT(1) NOT NULL DEFAULT 0 AFTER gate_state'
+ensure_column system_status loop_active 'TINYINT(1) NOT NULL DEFAULT 0 AFTER camera_connected'
+ensure_column system_status ir_blocked 'TINYINT(1) NOT NULL DEFAULT 0 AFTER loop_active'
+ensure_column system_status barrier_open 'TINYINT(1) NOT NULL DEFAULT 0 AFTER ir_blocked'
+ensure_column system_status traffic_green 'TINYINT(1) NOT NULL DEFAULT 0 AFTER barrier_open'
+ensure_column system_status plate_unrecognized 'TINYINT(1) NOT NULL DEFAULT 0 AFTER traffic_green'
+ensure_column system_status controller_seen_at 'TIMESTAMP NULL AFTER plate_unrecognized'
 ensure_index access_events idx_access_events_rfid 'KEY idx_access_events_rfid (rfid_number, detected_at DESC)'
 
 # Move values created by the first RFID prototype into the normalized sticker

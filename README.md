@@ -14,11 +14,12 @@ No Docker or SQLite is used.
 4. PP-OCRv5 returns a clean alphanumeric value and uploads it with the crop.
 5. The server checks MySQL, stores the event, and returns authorized or denied.
 
-RFID is optional and is selected during `controller -configure`. With RFID
-disabled, registered-plate authorization works exactly as before. With RFID
-enabled, the controller reads the long-range tag and sends it with the plate.
-An active RFID sticker found in MySQL authorizes the barrier independently of
-the OCR result; a missing, unknown, inactive, or expired RFID keeps it closed.
+RFID is optional and is selected during `controller -configure`. The controller
+places the confirmed UHFReader18-compatible device in Answer Mode, requests an
+on-demand inventory over RS232, validates the binary response CRC, and sends only
+the canonical EPC value. Authorization is OR-based: either an active, unexpired
+plate registration or an active RFID sticker in MySQL opens the barrier. Access is
+denied only when neither credential is authorized.
 Binary sticker values are stored as uppercase hexadecimal without separators,
 for example `3045673030553F9030553F90`.
 6. The Pi uploads the raw camera frame and an annotated copy containing the
@@ -28,6 +29,20 @@ for example `3045673030553F9030553F90`.
    authorized or denied, alongside the Pi's frame, YOLO, OCR, upload, and total
    timings.
 8. The dashboard synchronizes automatically without full-page refreshes.
+9. A live traffic-light panel shows the Raspberry Pi connection, camera,
+   inductive loop, IR safety beam, boom barrier, and red/green traffic output.
+   The Pi reports these signals once per second without running YOLO or OCR.
+10. The separate **Hardware** page gives administrators confirmed diagnostic
+    controls for barrier UP/DOWN and three-second red/green signal tests. Guards
+    can view live indicators but cannot send hardware commands.
+11. Administrators can use the RFID serial console on the Hardware page to send
+    HEX bytes or plain text through `/dev/serial0`. Baud rate, data bits, parity,
+    stop bits, and response timeout are selectable; replies are displayed as
+    both HEX and readable text. Verified shortcuts cover single- and multi-tag
+    inventory, reader information, work mode, Answer Mode, scan duration, and
+    the reader's 9600-baud configuration. Shortcuts fill the editable command
+    field and never transmit until the administrator confirms Send. The lane
+    should remain clear during this test.
 
 ## One-time installation
 

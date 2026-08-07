@@ -22,6 +22,11 @@
     const element = byId(id);
     if (element) element.className = `indicator ${state}`;
   };
+  const signal = (id, stateId, color, label) => {
+    const lamp = byId(id);
+    if (lamp) lamp.className = `signal-lamp ${color}`;
+    text(stateId, label);
+  };
   const statusBadge = (value) => {
     const badge = document.createElement("span");
     badge.className = `status ${String(value || "").toLowerCase()}`;
@@ -228,20 +233,16 @@
     text("metric-events-today", data.summary.events_today);
     text("metric-authorized-today", data.summary.authorized_today);
     text("metric-denied-today", data.summary.denied_today);
-    text("system-camera", titleCase(data.system.camera_state));
-    text("system-detector", titleCase(data.system.detector_state));
-    text("system-gate", titleCase(data.system.gate_state));
-    text("system-last-plate", data.system.last_plate || "None");
-    text("system-last-rfid", data.system.last_rfid || "None");
-    text("system-heartbeat", data.system.last_heartbeat || "Not connected");
-    indicator("camera-indicator", data.system.camera_running ? "online" : "offline");
-    indicator(
-      "detector-indicator",
-      data.system.camera_running && ["active", "idle", "queued"].includes(data.system.detector_state)
-        ? "online"
-        : "offline",
-    );
-    indicator("gate-indicator", data.system.gate_state === "open" ? "online" : "neutral");
+    const online = Boolean(data.system.controller_online);
+    const moving = ["opening", "closing", "fault"].includes(data.system.gate_state);
+    signal("controller-lamp", "controller-state", online ? "green" : "red", online ? "Connected" : "Offline");
+    signal("camera-lamp", "camera-state", online && data.system.camera_running ? "green" : "red", online && data.system.camera_running ? "Detected" : "Unavailable");
+    signal("loop-lamp", "loop-state", online ? (data.system.loop_active ? "green" : "red") : "off", online ? (data.system.loop_active ? "Vehicle present" : "Clear") : "Unknown");
+    signal("ir-lamp", "ir-state", online ? (data.system.ir_blocked ? "red" : "green") : "off", online ? (data.system.ir_blocked ? "Blocked" : "Clear") : "Unknown");
+    signal("barrier-lamp", "barrier-state", online ? (moving ? "amber" : (data.system.barrier_open ? "green" : "red")) : "off", online ? titleCase(String(data.system.gate_state || "unknown").replaceAll("_", " ")) : "Unknown");
+    signal("traffic-lamp", "traffic-state", online ? (data.system.traffic_green ? "green" : "red") : "off", online ? (data.system.traffic_green ? "GO" : "STOP") : "Unknown");
+    signal("plate-result-lamp", "plate-result-state", online ? (data.system.plate_unrecognized ? "red" : "green") : "off", online ? (data.system.plate_unrecognized ? "Not recognized" : "Ready") : "Unknown");
+    text("hardware-updated", data.system.controller_seen_at || "Waiting for controller");
     updateCaptureButton(data.system.detector_state);
     updateLatest(data.latest_event, data.latest_timing);
     updateRecent(data.recent_events);

@@ -256,6 +256,7 @@ def protect_forms() -> None:
         "reader_recognition",
         "reader_next_command",
         "reader_complete_command",
+        "reader_status",
     }
     if request.method == "POST" and request.endpoint not in reader_endpoints:
         supplied = request.form.get("csrf_token", "")
@@ -264,13 +265,68 @@ def protect_forms() -> None:
             abort(400, "Invalid form token. Refresh the page and try again.")
 
 
+def reader_form_boolean(field: str) -> bool:
+    return request.form.get(field, "0").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+@app.post("/api/reader/status")
+def reader_status():
+    gate_state = request.form.get("gate_state", "unknown").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{1,40}", gate_state):
+        return {"error": "Invalid gate state."}, 400
+    camera_connected = reader_form_boolean("camera_connected")
+    detector_state = request.form.get("detector_state", "idle").strip().lower()
+    if detector_state not in {"idle", "active"}:
+        return {"error": "Invalid detector state."}, 400
+    connection = get_db()
+    connection.execute(
+        """
+        UPDATE system_status
+        SET camera_state = ?, detector_state = ?, gate_state = ?,
+            camera_connected = ?, loop_active = ?, ir_blocked = ?,
+            barrier_open = ?, traffic_green = ?, plate_unrecognized = ?,
+            controller_seen_at = CURRENT_TIMESTAMP,
+            last_heartbeat = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        """,
+        (
+            "remote" if camera_connected else "unavailable",
+            detector_state,
+            gate_state,
+            camera_connected,
+            reader_form_boolean("loop_active"),
+            reader_form_boolean("ir_blocked"),
+            reader_form_boolean("barrier_open"),
+            reader_form_boolean("traffic_green"),
+            reader_form_boolean("plate_unrecognized"),
+        ),
+    )
+    connection.commit()
+    return {"accepted": True}
+
+
 @app.post("/api/reader/commands/next")
 def reader_next_command():
     connection = get_db()
     connection.execute("START TRANSACTION")
+    connection.execute(
+        """
+        UPDATE reader_commands
+        SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
+            result_message = 'Hardware command expired before controller pickup'
+        WHERE status = 'pending' AND command_type != 'capture'
+          AND created_at < TIMESTAMPADD(SECOND, -10, CURRENT_TIMESTAMP)
+        """
+    )
     command = connection.execute(
         """
-        SELECT id, command_type FROM reader_commands
+        SELECT id, command_type, serial_tx_hex, serial_baud,
+               serial_data_bits, serial_parity, serial_stop_bits,
+               serial_timeout_ms
+        FROM reader_commands
         WHERE status = 'pending'
         ORDER BY created_at, id
         LIMIT 1 FOR UPDATE
@@ -291,15 +347,26 @@ def reader_next_command():
         """
         UPDATE system_status
         SET camera_state = 'remote', detector_state = 'active',
+            camera_connected = 1, controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
         """
     )
     connection.commit()
-    return {
+    response = {
         "command": command["command_type"],
         "command_id": command["id"],
     }
+    if command["command_type"] == "rfid_serial":
+        response["serial"] = {
+            "tx_hex": command["serial_tx_hex"],
+            "baud": command["serial_baud"],
+            "data_bits": command["serial_data_bits"],
+            "parity": command["serial_parity"],
+            "stop_bits": command["serial_stop_bits"],
+            "timeout_ms": command["serial_timeout_ms"],
+        }
+    return response
 
 
 @app.post("/api/reader/commands/<int:command_id>/complete")
@@ -307,6 +374,7 @@ def reader_complete_command(command_id: int):
     requested_status = request.form.get("status", "completed")
     status = requested_status if requested_status in {"completed", "failed"} else "failed"
     message = request.form.get("message", "")[:500] or None
+    response_data = request.form.get("response_data", "")[:16000] or None
     timings = []
     for field in ("frames_ms", "yolo_ms", "ocr_ms", "server_ms", "total_ms"):
         try:
@@ -320,17 +388,19 @@ def reader_complete_command(command_id: int):
         UPDATE reader_commands
         SET status = ?, completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
             result_message = ?,
+            response_data = COALESCE(?, response_data),
             frames_ms = COALESCE(?, frames_ms), yolo_ms = COALESCE(?, yolo_ms),
             ocr_ms = COALESCE(?, ocr_ms), server_ms = COALESCE(?, server_ms),
             total_ms = COALESCE(?, total_ms)
         WHERE id = ?
         """,
-        (status, message, *timings, command_id),
+        (status, message, response_data, *timings, command_id),
     )
     connection.execute(
         """
         UPDATE system_status
         SET camera_state = 'remote', detector_state = 'idle',
+            camera_connected = 1, controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
         """
@@ -405,7 +475,9 @@ def reader_recognition():
         rfid_number,
         rfid_vehicle["id"] if rfid_vehicle else None,
     )
-    authorized_vehicle = rfid_vehicle if rfid_required else vehicle
+    # Plate and RFID are independent authorization credentials. Prefer the
+    # plate-linked vehicle for display when both are valid; otherwise use RFID.
+    authorized_vehicle = vehicle or rfid_vehicle
     decision = "authorized" if authorized else "denied"
 
     duplicate = None if is_no_plate_capture else connection.execute(
@@ -473,7 +545,8 @@ def reader_recognition():
         """
         UPDATE system_status
         SET camera_state = 'remote', detector_state = 'idle', last_plate = ?,
-            last_rfid = ?,
+            last_rfid = ?, camera_connected = 1,
+            controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
         """,
@@ -676,7 +749,14 @@ def load_dashboard_state() -> dict[str, Any]:
     ).fetchall()
     system = connection.execute(
         """
-        SELECT id, camera_state, detector_state, gate_state, last_plate, last_rfid,
+        SELECT id, camera_state, detector_state, gate_state,
+               camera_connected, loop_active, ir_blocked,
+               barrier_open, traffic_green, plate_unrecognized,
+               (controller_seen_at IS NOT NULL AND
+                controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP))
+                    AS controller_online,
+               last_plate, last_rfid,
+               DATE_FORMAT(controller_seen_at, '%Y-%m-%d %H:%i:%s') AS controller_seen_at,
                DATE_FORMAT(last_heartbeat, '%Y-%m-%d %H:%i:%s') AS last_heartbeat,
                DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
         FROM system_status WHERE id = 1
@@ -701,6 +781,12 @@ def load_dashboard_state() -> dict[str, Any]:
 @login_required
 def dashboard():
     return render_template("dashboard.html", **load_dashboard_state())
+
+
+@app.route("/hardware")
+@login_required
+def hardware():
+    return render_template("hardware.html", **load_dashboard_state())
 
 
 @app.route("/api/dashboard")
@@ -733,12 +819,19 @@ def dashboard_sync():
         "recent_events": recent,
         "daily": [dict(row) for row in state["daily"]],
         "system": {
-            "camera_running": system["camera_state"] == "remote",
+            "controller_online": bool(system["controller_online"]),
+            "camera_running": bool(system["controller_online"] and system["camera_connected"]),
             "camera_state": system["camera_state"],
             "detector_state": system["detector_state"],
             "gate_state": system["gate_state"],
+            "loop_active": bool(system["loop_active"]),
+            "ir_blocked": bool(system["ir_blocked"]),
+            "barrier_open": bool(system["barrier_open"]),
+            "traffic_green": bool(system["traffic_green"]),
+            "plate_unrecognized": bool(system["plate_unrecognized"]),
             "last_plate": system["last_plate"],
             "last_rfid": system["last_rfid"],
+            "controller_seen_at": system["controller_seen_at"],
             "last_heartbeat": system["last_heartbeat"],
         },
     }
@@ -792,6 +885,182 @@ def camera_capture():
         return {"success": success, "message": message}, 202 if success else 409
     flash(message, "success" if success else "error")
     return redirect(url_for("dashboard"))
+
+
+@app.post("/hardware/command")
+@role_required("administrator")
+def hardware_command():
+    command = request.form.get("command", "").strip().lower()
+    labels = {
+        "barrier_open": "Boom-barrier OPEN test",
+        "barrier_close": "Boom-barrier CLOSE test",
+        "traffic_red": "Traffic RED test",
+        "traffic_green": "Traffic GREEN test",
+    }
+    if command not in labels:
+        return {"success": False, "message": "Unsupported hardware command."}, 400
+    connection = get_db()
+    controller = connection.execute(
+        """
+        SELECT gate_state, controller_seen_at IS NOT NULL AND
+               controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP)
+                   AS online
+        FROM system_status WHERE id = 1
+        """
+    ).fetchone()
+    if controller is None or not controller["online"]:
+        return {
+            "success": False,
+            "message": "The Raspberry Pi controller is offline. No hardware command was queued.",
+        }, 409
+    if controller["gate_state"] == "disabled":
+        return {
+            "success": False,
+            "message": "Automatic GPIO gate mode is disabled on the controller.",
+        }, 409
+    connection.execute(
+        """
+        UPDATE reader_commands
+        SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
+            result_message = 'Command timed out before completion'
+        WHERE status IN ('pending', 'active')
+          AND COALESCE(started_at, created_at) < TIMESTAMPADD(MINUTE, -2, CURRENT_TIMESTAMP)
+        """
+    )
+    existing = connection.execute(
+        """
+        SELECT id FROM reader_commands
+        WHERE status IN ('pending', 'active')
+        ORDER BY created_at LIMIT 1
+        """
+    ).fetchone()
+    if existing is not None:
+        connection.commit()
+        return {
+            "success": False,
+            "message": "Another controller command is already queued or running.",
+        }, 409
+    cursor = connection.execute(
+        """
+        INSERT INTO reader_commands (command_type, status, requested_by)
+        VALUES (?, 'pending', ?)
+        """,
+        (command, session["user_id"]),
+    )
+    record_audit(
+        "queue_hardware_command",
+        "reader_command",
+        cursor.lastrowid,
+        labels[command],
+    )
+    connection.commit()
+    return {
+        "success": True,
+        "message": f"{labels[command]} sent to the Raspberry Pi.",
+    }, 202
+
+
+@app.post("/hardware/serial")
+@role_required("administrator")
+def hardware_serial():
+    mode = request.form.get("mode", "hex").strip().lower()
+    command_text = request.form.get("command", "")
+    if mode == "hex":
+        compact = re.sub(r"0x", "", command_text, flags=re.IGNORECASE)
+        compact = re.sub(r"[\s,;:<>{}\[\]()-]+", "", compact)
+        if not compact or len(compact) % 2 or not re.fullmatch(r"[0-9a-fA-F]+", compact):
+            return {
+                "success": False,
+                "message": "HEX commands must contain complete byte pairs such as 05 00 01 FE 5F 6A.",
+            }, 400
+        tx_hex = compact.upper()
+    elif mode == "text":
+        if not command_text:
+            return {"success": False, "message": "Enter a text command."}, 400
+        tx_hex = command_text.encode("utf-8").hex().upper()
+    else:
+        return {"success": False, "message": "Invalid transmit mode."}, 400
+    if len(tx_hex) > 1024:
+        return {"success": False, "message": "Serial commands are limited to 512 bytes."}, 400
+    try:
+        baud = int(request.form.get("baud", "9600"))
+        data_bits = int(request.form.get("data_bits", "8"))
+        stop_bits = int(request.form.get("stop_bits", "1"))
+        timeout_ms = int(request.form.get("timeout_ms", "2000"))
+    except ValueError:
+        return {"success": False, "message": "Invalid numeric serial setting."}, 400
+    parity = request.form.get("parity", "N").strip().upper()
+    if baud not in {1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200}:
+        return {"success": False, "message": "Unsupported baud rate."}, 400
+    if data_bits not in {5, 6, 7, 8} or parity not in {"N", "E", "O"} or stop_bits not in {1, 2}:
+        return {"success": False, "message": "Invalid data bits, parity, or stop bits."}, 400
+    if timeout_ms < 50 or timeout_ms > 10000:
+        return {"success": False, "message": "Read timeout must be from 50 to 10000 ms."}, 400
+
+    connection = get_db()
+    controller = connection.execute(
+        """
+        SELECT gate_state, controller_seen_at IS NOT NULL AND
+               controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP)
+                   AS online
+        FROM system_status WHERE id = 1
+        """
+    ).fetchone()
+    if controller is None or not controller["online"]:
+        return {"success": False, "message": "The Raspberry Pi controller is offline."}, 409
+    if controller["gate_state"] == "disabled":
+        return {"success": False, "message": "GPIO gate mode is disabled on the controller."}, 409
+    existing = connection.execute(
+        """
+        SELECT id FROM reader_commands
+        WHERE status IN ('pending', 'active')
+        ORDER BY created_at LIMIT 1
+        """
+    ).fetchone()
+    if existing is not None:
+        return {"success": False, "message": "Another controller command is already running."}, 409
+    cursor = connection.execute(
+        """
+        INSERT INTO reader_commands (
+            command_type, status, requested_by, serial_tx_hex, serial_baud,
+            serial_data_bits, serial_parity, serial_stop_bits, serial_timeout_ms
+        ) VALUES ('rfid_serial', 'pending', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            session["user_id"], tx_hex, baud, data_bits,
+            parity, stop_bits, timeout_ms,
+        ),
+    )
+    record_audit(
+        "queue_rfid_serial",
+        "reader_command",
+        cursor.lastrowid,
+        f"RFID serial debug {baud} {data_bits}{parity}{stop_bits}; TX {tx_hex}",
+    )
+    connection.commit()
+    return {
+        "success": True,
+        "message": "Serial command queued for the Raspberry Pi.",
+        "command_id": cursor.lastrowid,
+        "tx_hex": tx_hex,
+    }, 202
+
+
+@app.get("/api/hardware/commands/<int:command_id>")
+@role_required("administrator")
+def hardware_command_result(command_id: int):
+    command = get_db().execute(
+        """
+        SELECT id, command_type, status, result_message, response_data,
+               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+               DATE_FORMAT(completed_at, '%Y-%m-%d %H:%i:%s') AS completed_at
+        FROM reader_commands WHERE id = ? AND requested_by = ?
+        """,
+        (command_id, session["user_id"]),
+    ).fetchone()
+    if command is None:
+        return {"error": "Command not found."}, 404
+    return dict(command), 200, {"Cache-Control": "no-store"}
 
 
 @app.route("/vehicles")

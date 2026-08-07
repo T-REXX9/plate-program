@@ -18,6 +18,7 @@
     </a>
     <nav aria-label="Primary navigation">
       <a class="{{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}">Overview</a>
+      <a class="{{ 'active' if request.endpoint in ['hardware', 'hardware_command'] else '' }}" href="{{ url_for('hardware') }}">Hardware</a>
       {% if current_role == 'administrator' %}
       <a class="{{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}">Vehicles</a>
       <a class="{{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}">Guards</a>

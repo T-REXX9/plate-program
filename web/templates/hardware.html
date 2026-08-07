@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Hardware · Gatekeeper{% endblock %}
+{% block body_class %}hardware-page{% endblock %}
+{% block head %}<script src="{{ url_for('static', filename='hardware.js') }}" defer></script>{% endblock %}
+{% block content %}
+<div class="page-heading compact-heading">
+  <div><p class="eyebrow">Maintenance diagnostics <span class="sync-status" id="hardware-sync">Live</span></p><h1>Gate hardware</h1><p>Live controller inputs, outputs, and protected manual tests.</p></div>
+</div>
+
+<section class="panel hardware-live-panel">
+  <div class="panel-heading"><div><h2>Live indicators</h2><p>Updated automatically from the Raspberry Pi</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for controller' }}</small></div>
+  <div class="hardware-status-grid hardware-page-grid" role="group" aria-label="Live gate hardware indicators">
+    <div class="hardware-signal"><span id="controller-lamp" class="signal-lamp {{ 'green' if system.controller_online else 'red' }}"></span><span><strong>Server link</strong><small id="controller-state">{{ 'Connected' if system.controller_online else 'Offline' }}</small></span></div>
+    <div class="hardware-signal"><span id="camera-lamp" class="signal-lamp {{ 'green' if system.controller_online and system.camera_connected else 'red' }}"></span><span><strong>Camera</strong><small id="camera-state">{{ 'Detected' if system.controller_online and system.camera_connected else 'Unavailable' }}</small></span></div>
+    <div class="hardware-signal"><span id="loop-lamp" class="signal-lamp {{ 'green' if system.controller_online and system.loop_active else ('red' if system.controller_online else 'off') }}"></span><span><strong>Loop detector</strong><small id="loop-state">{{ 'Vehicle present' if system.controller_online and system.loop_active else ('Clear' if system.controller_online else 'Unknown') }}</small></span></div>
+    <div class="hardware-signal"><span id="ir-lamp" class="signal-lamp {{ 'red' if system.controller_online and system.ir_blocked else ('green' if system.controller_online else 'off') }}"></span><span><strong>IR safety beam</strong><small id="ir-state">{{ 'Blocked' if system.controller_online and system.ir_blocked else ('Clear' if system.controller_online else 'Unknown') }}</small></span></div>
+    <div class="hardware-signal"><span id="barrier-lamp" class="signal-lamp {{ 'amber' if system.controller_online and system.gate_state in ['opening', 'closing', 'fault'] else ('green' if system.controller_online and system.barrier_open else ('red' if system.controller_online else 'off')) }}"></span><span><strong>Boom barrier</strong><small id="barrier-state">{{ system.gate_state | replace('_', ' ') | title if system.controller_online else 'Unknown' }}</small></span></div>
+    <div class="hardware-signal"><span id="traffic-lamp" class="signal-lamp {{ 'green' if system.controller_online and system.traffic_green else ('red' if system.controller_online else 'off') }}"></span><span><strong>Traffic signal</strong><small id="traffic-state">{{ 'GO' if system.controller_online and system.traffic_green else ('STOP' if system.controller_online else 'Unknown') }}</small></span></div>
+    <div class="hardware-signal"><span id="plate-result-lamp" class="signal-lamp {{ 'red' if system.controller_online and system.plate_unrecognized else ('green' if system.controller_online else 'off') }}"></span><span><strong>Plate result</strong><small id="plate-result-state">{{ 'Not recognized' if system.controller_online and system.plate_unrecognized else ('Ready' if system.controller_online else 'Unknown') }}</small></span></div>
+  </div>
+</section>
+
+{% if current_role == 'administrator' %}
+<section class="panel hardware-controls-panel">
+  <div class="panel-heading"><div><h2>Manual output tests</h2><p>Commands are executed by the Raspberry Pi controller</p></div></div>
+  <div class="hardware-warning"><strong>Keep the gate area clear.</strong><span>CLOSE is blocked whenever the IR safety beam is interrupted. Traffic-light tests automatically return to normal control after three seconds.</span></div>
+  <input id="hardware-csrf" type="hidden" value="{{ csrf_token() }}">
+  <div class="hardware-control-groups">
+    <div class="hardware-control-group"><span><strong>Boom barrier</strong><small>Send one protected OPEN or CLOSE cycle</small></span><div><button class="diagnostic-command barrier-open-button" type="button" data-command="barrier_open" data-confirm="Confirm the area is clear. Raise the boom barrier now?" {{ 'disabled' if not system.controller_online or system.gate_state == 'disabled' else '' }}>↑ Raise barrier</button><button class="diagnostic-command barrier-close-button" type="button" data-command="barrier_close" data-confirm="Confirm no vehicle or person is beneath the barrier. Lower it now?" {{ 'disabled' if not system.controller_online or system.gate_state == 'disabled' else '' }}>↓ Lower barrier</button></div></div>
+    <div class="hardware-control-group"><span><strong>Traffic light</strong><small>Test either signal for three seconds</small></span><div><button class="diagnostic-command traffic-red-button" type="button" data-command="traffic_red" data-confirm="Test the RED traffic signal for three seconds?" {{ 'disabled' if not system.controller_online or system.gate_state == 'disabled' else '' }}>● Red</button><button class="diagnostic-command traffic-green-button" type="button" data-command="traffic_green" data-confirm="The green signal tells vehicles to move. Confirm the lane is secured before testing it." {{ 'disabled' if not system.controller_online or system.gate_state == 'disabled' else '' }}>● Green</button></div></div>
+  </div>
+</section>
+
+<section class="panel serial-console-panel">
+  <div class="panel-heading"><div><h2>RFID serial console</h2><p>Send a command to the reader connected to the Raspberry Pi and inspect its reply</p></div><span class="serial-port-label">/dev/serial0</span></div>
+  <div class="hardware-warning"><strong>Use only while the lane is clear.</strong><span>A debug transaction temporarily takes control of RFID serial communication. Automatic RFID reading resumes after the timeout.</span></div>
+  <div class="serial-console-layout">
+    <form id="serial-form" class="serial-settings-form">
+      <div class="serial-presets" aria-label="RFID command shortcuts">
+        <span class="serial-presets-title">Command shortcuts</span>
+        <div class="serial-preset-grid">
+          <button type="button" class="serial-preset primary-preset" data-serial-command="04 00 0F A5 A2" data-serial-timeout="2000" data-serial-name="Single-tag inventory" title="Request one tag read">Read one tag</button>
+          <button type="button" class="serial-preset primary-preset" data-serial-command="04 00 01 DB 4B" data-serial-timeout="10000" data-serial-name="Multi-tag inventory" title="Read all tags during the configured inventory duration">Read multiple tags</button>
+          <button type="button" class="serial-preset" data-serial-command="04 00 21 D9 6A" data-serial-timeout="1000" data-serial-name="Reader information">Reader information</button>
+          <button type="button" class="serial-preset" data-serial-command="04 00 36 E7 0E" data-serial-timeout="1000" data-serial-name="Work-mode configuration">Check work mode</button>
+          <button type="button" class="serial-preset configuration-preset" data-serial-command="0A 00 35 00 02 04 02 06 00 CD 09" data-serial-timeout="1000" data-serial-name="Set Answer Mode">Set Answer Mode</button>
+          <button type="button" class="serial-preset configuration-preset" data-serial-command="05 00 25 14 58 66" data-serial-timeout="1000" data-serial-name="Set inventory duration to 2 seconds">Set scan to 2s</button>
+          <button type="button" class="serial-preset configuration-preset" data-serial-command="05 00 25 32 6C 22" data-serial-timeout="1000" data-serial-name="Set inventory duration to 5 seconds">Set scan to 5s</button>
+          <button type="button" class="serial-preset configuration-preset" data-serial-command="05 FF 28 00 76 46" data-serial-timeout="1000" data-serial-name="Set reader baud rate to 9600">Set reader to 9600</button>
+        </div>
+        <small id="serial-preset-help">Choose a shortcut to load its verified HEX command. You can review or edit it before sending.</small>
+      </div>
+      <div class="serial-settings-grid">
+        <label><span>Baud rate</span><select id="serial-baud" name="baud"><option>1200</option><option>2400</option><option>4800</option><option selected>9600</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option></select></label>
+        <label><span>Data bits</span><select id="serial-data-bits" name="data_bits"><option>5</option><option>6</option><option>7</option><option selected>8</option></select></label>
+        <label><span>Parity</span><select id="serial-parity" name="parity"><option value="N" selected>None</option><option value="E">Even</option><option value="O">Odd</option></select></label>
+        <label><span>Stop bits</span><select id="serial-stop-bits" name="stop_bits"><option selected>1</option><option>2</option></select></label>
+        <label><span>Read timeout</span><select id="serial-timeout" name="timeout_ms"><option value="500">0.5 seconds</option><option value="1000">1 second</option><option value="2000" selected>2 seconds</option><option value="3000">3 seconds</option><option value="5000">5 seconds</option><option value="10000">10 seconds</option></select></label>
+        <label><span>Send as</span><select id="serial-mode" name="mode"><option value="hex" selected>HEX bytes</option><option value="text">Plain text</option></select></label>
+      </div>
+      <label class="serial-command-field"><span>Command</span><textarea id="serial-command" name="command" rows="3" spellcheck="false" placeholder="05 00 01 FE 5F 6A" required></textarea></label>
+      <div class="serial-actions"><button id="serial-send" class="primary-button" type="submit" {{ 'disabled' if not system.controller_online or system.gate_state == 'disabled' else '' }}>Send command</button><button id="serial-clear" class="secondary-button" type="button">Clear terminal</button></div>
+    </form>
+    <div class="serial-terminal-wrap">
+      <div class="serial-terminal-bar"><span>RFID SERIAL MONITOR</span><span id="serial-terminal-state">Ready</span></div>
+      <pre id="serial-terminal" class="serial-terminal" role="log" aria-live="polite">RFID serial console ready.
+Commands are sent through the Plate Controller; this is not an operating-system shell.</pre>
+    </div>
+  </div>
+</section>
+{% else %}
+<section class="panel hardware-readonly"><strong>Read-only hardware view</strong><span>Only an administrator can operate manual diagnostic controls.</span></section>
+{% endif %}
+{% endblock %}

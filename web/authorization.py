@@ -16,12 +16,16 @@ def authorize_plate_and_rfid(
     rfid_number: str,
     rfid_vehicle_id: int | None,
 ) -> tuple[bool, bool, str]:
+    plate_authorized = plate_vehicle_id is not None
+    rfid_authorized = bool(rfid_required and rfid_number and rfid_vehicle_id is not None)
+    if plate_authorized and rfid_authorized:
+        return True, True, "plate_and_rfid_authorized"
+    if plate_authorized:
+        return True, False, "plate_authorized"
+    if rfid_authorized:
+        return True, True, "rfid_authorized"
     if not rfid_required:
-        if plate_vehicle_id is None:
-            return False, False, "plate_not_registered"
-        return True, False, "plate_authorized_rfid_disabled"
+        return False, False, "plate_not_registered"
     if not rfid_number:
-        return False, False, "rfid_not_read"
-    if rfid_vehicle_id is None:
-        return False, False, "rfid_not_registered"
-    return True, True, "rfid_authorized"
+        return False, False, "neither_authorized_rfid_not_read"
+    return False, False, "neither_authorized_rfid_not_registered"

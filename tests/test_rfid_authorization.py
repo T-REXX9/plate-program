@@ -14,7 +14,7 @@ class RfidAuthorizationTests(unittest.TestCase):
     def test_disabled_rfid_preserves_plate_only_authorization(self) -> None:
         self.assertEqual(
             authorize_plate_and_rfid(5, False, "", None),
-            (True, False, "plate_authorized_rfid_disabled"),
+            (True, False, "plate_authorized"),
         )
 
     def test_known_rfid_authorizes_even_when_plate_is_unknown(self) -> None:
@@ -23,28 +23,40 @@ class RfidAuthorizationTests(unittest.TestCase):
             (True, True, "rfid_authorized"),
         )
 
-    def test_missing_rfid_is_denied_when_required(self) -> None:
+    def test_registered_plate_authorizes_when_rfid_is_not_read(self) -> None:
         self.assertEqual(
-            authorize_plate_and_rfid(5, True, "", None)[2],
-            "rfid_not_read",
+            authorize_plate_and_rfid(5, True, "", None),
+            (True, False, "plate_authorized"),
         )
 
-    def test_unregistered_rfid_is_denied(self) -> None:
+    def test_registered_plate_authorizes_with_unknown_rfid(self) -> None:
         self.assertEqual(
-            authorize_plate_and_rfid(5, True, "UNKNOWN", None)[2],
-            "rfid_not_registered",
+            authorize_plate_and_rfid(5, True, "UNKNOWN", None),
+            (True, False, "plate_authorized"),
+        )
+
+    def test_neither_credential_denies_when_rfid_is_not_read(self) -> None:
+        self.assertEqual(
+            authorize_plate_and_rfid(None, True, "", None),
+            (False, False, "neither_authorized_rfid_not_read"),
+        )
+
+    def test_neither_credential_denies_unknown_rfid(self) -> None:
+        self.assertEqual(
+            authorize_plate_and_rfid(None, True, "UNKNOWN", None),
+            (False, False, "neither_authorized_rfid_not_registered"),
         )
 
     def test_registered_rfid_is_authorized_independently_of_plate(self) -> None:
         self.assertEqual(
             authorize_plate_and_rfid(5, True, "TAG2", 9),
-            (True, True, "rfid_authorized"),
+            (True, True, "plate_and_rfid_authorized"),
         )
 
     def test_matching_plate_and_rfid_are_authorized(self) -> None:
         self.assertEqual(
             authorize_plate_and_rfid(5, True, "TAG5", 5),
-            (True, True, "rfid_authorized"),
+            (True, True, "plate_and_rfid_authorized"),
         )
 
     def test_rfid_normalization_removes_formatting(self) -> None:
