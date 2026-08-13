@@ -64,11 +64,18 @@
   };
 
   function updateFrameSelector() {
+    const selector = byId("frame-selector");
+    if (selector) selector.hidden = Boolean(latestEvent && !latestEvent.has_image);
     document.querySelectorAll(".frame-option").forEach((button) => {
       const selected = button.dataset.frameKind === frameKind;
       button.classList.toggle("active", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
+    if (latestEvent && !latestEvent.has_image) {
+      text("latest-photo-title", "Latest RFID access");
+      text("latest-photo-subtitle", "RFID decision received from a camera-less controller");
+      return;
+    }
     text("latest-photo-title", frameKind === "raw" ? "Latest raw frame" : "Latest annotated frame");
     text(
       "latest-photo-subtitle",
@@ -80,7 +87,7 @@
 
   function showSelectedFrame() {
     updateFrameSelector();
-    if (!latestEvent) return;
+    if (!latestEvent || !latestEvent.has_image) return;
     const frame = byId("latest-photo-frame");
     const image = byId("latest-photo");
     if (!frame || !image) return;
@@ -105,6 +112,8 @@
     const decision = byId("latest-decision");
     const accessLed = byId("latest-access-led");
     const timingLabel = byId("latest-timing");
+    const placeholderTitle = byId("latest-placeholder-title");
+    const placeholderMessage = byId("latest-placeholder-message");
     if (!frame || !image || !details || !placeholder || !decision) return;
 
     if (!event) {
@@ -113,6 +122,8 @@
       details.hidden = true;
       decision.hidden = true;
       placeholder.hidden = false;
+      if (placeholderTitle) placeholderTitle.textContent = "No access event yet";
+      if (placeholderMessage) placeholderMessage.textContent = "The first plate or RFID access event will appear here automatically.";
       if (timingLabel) timingLabel.hidden = true;
       if (accessLed) {
         accessLed.className = "access-led neutral";
@@ -144,9 +155,15 @@
       accessLed.setAttribute("aria-label", `Latest access ${event.decision}`);
       accessLed.title = `Latest access: ${event.decision}`;
     }
-    frame.hidden = false;
+    const hasImage = Boolean(event.has_image);
+    frame.hidden = !hasImage;
     details.hidden = false;
-    placeholder.hidden = true;
+    placeholder.hidden = hasImage;
+    if (!hasImage) {
+      if (placeholderTitle) placeholderTitle.textContent = "RFID-only access event";
+      if (placeholderMessage) placeholderMessage.textContent = "This controller has no camera, so no vehicle image was captured.";
+    }
+    updateFrameSelector();
   }
 
   function updateCaptureButton(detectorState) {

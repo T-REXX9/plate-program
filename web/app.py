@@ -257,6 +257,8 @@ def protect_forms() -> None:
         "reader_next_command",
         "reader_complete_command",
         "reader_status",
+        "rfid_controller_recognition",
+        "rfid_controller_status",
     }
     if request.method == "POST" and request.endpoint not in reader_endpoints:
         supplied = request.form.get("csrf_token", "")
@@ -268,6 +270,115 @@ def protect_forms() -> None:
 def reader_form_boolean(field: str) -> bool:
     return request.form.get(field, "0").strip().lower() in {
         "1", "true", "yes", "on"
+    }
+
+
+@app.post("/api/rfid-controller/status")
+def rfid_controller_status():
+    """Record a camera-less RFID controller heartbeat."""
+    connection = get_db()
+    connection.execute(
+        """
+        UPDATE system_status
+        SET controller_seen_at = CURRENT_TIMESTAMP,
+            last_heartbeat = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        """
+    )
+    connection.commit()
+    return {"accepted": True, "controller_type": "rfid", "camera": False}
+
+
+@app.post("/api/rfid-controller/recognitions")
+def rfid_controller_recognition():
+    """Authorize an RFID scan and create a normal camera-less access event."""
+    rfid_number = normalize_rfid(request.form.get("rfid", ""))
+    if len(rfid_number) < 4 or len(rfid_number) > 64:
+        return {"error": "A valid RFID value containing 4 to 64 characters is required."}, 400
+
+    connection = get_db()
+    vehicle = connection.execute(
+        """
+        SELECT v.id, v.plate_number, v.owner_name, v.vehicle_type, v.make, v.model
+        FROM rfid_stickers r
+        JOIN vehicles v ON v.id = r.vehicle_id
+        WHERE r.sticker_value = ? AND r.is_active = 1
+          AND v.is_active = 1
+          AND (v.registration_expires_on IS NULL
+               OR v.registration_expires_on >= CURRENT_DATE)
+        LIMIT 1
+        """,
+        (rfid_number,),
+    ).fetchone()
+    authorized = vehicle is not None
+    decision = "authorized" if authorized else "denied"
+    plate = vehicle["plate_number"] if vehicle else "RFID"
+    reason = "rfid_authorized" if authorized else "rfid_not_registered_or_expired"
+
+    duplicate = connection.execute(
+        """
+        SELECT id FROM access_events
+        WHERE rfid_number = ?
+          AND detected_at >= TIMESTAMPADD(
+            SECOND,
+            -CAST(COALESCE((SELECT `value` FROM settings
+                WHERE `key` = 'duplicate_event_seconds'), '30') AS SIGNED),
+            NOW()
+        )
+        ORDER BY detected_at DESC LIMIT 1
+        """,
+        (rfid_number,),
+    ).fetchone()
+    event_id = duplicate["id"] if duplicate else None
+    if duplicate is None:
+        cursor = connection.execute(
+            """
+            INSERT INTO access_events (
+                vehicle_id, plate_number, rfid_number, rfid_required,
+                rfid_authorized, decision, gate_action, detector_confidence,
+                notes
+            ) VALUES (?, ?, ?, 1, ?, ?, ?, NULL, ?)
+            """,
+            (
+                vehicle["id"] if vehicle else None,
+                plate,
+                rfid_number,
+                int(authorized),
+                decision,
+                "opened" if authorized else "kept_closed",
+                reason,
+            ),
+        )
+        event_id = cursor.lastrowid
+
+    # Do not modify camera or detector fields. The Raspberry Pi plate
+    # controller may be using those fields at the same time.
+    connection.execute(
+        """
+        UPDATE system_status
+        SET last_plate = ?, last_rfid = ?,
+            controller_seen_at = CURRENT_TIMESTAMP,
+            last_heartbeat = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        """,
+        (plate, rfid_number),
+    )
+    connection.commit()
+    return {
+        "accepted": True,
+        "authorized": authorized,
+        "decision": decision,
+        "duplicate": duplicate is not None,
+        "event_id": event_id,
+        "owner": vehicle["owner_name"] if vehicle else None,
+        "plate": plate,
+        "rfid": rfid_number,
+        "vehicle_type": vehicle["vehicle_type"] if vehicle else None,
+        "make": vehicle["make"] if vehicle else None,
+        "model": vehicle["model"] if vehicle else None,
+        "authorization_reason": reason,
     }
 
 
@@ -723,13 +834,18 @@ def load_dashboard_state() -> dict[str, Any]:
                v.owner_name
         FROM access_events e
         LEFT JOIN vehicles v ON v.id = e.vehicle_id
-        WHERE (e.image_path IS NOT NULL AND e.image_path != '')
-           OR (e.raw_image_path IS NOT NULL AND e.raw_image_path != '')
-           OR (e.annotated_image_path IS NOT NULL AND e.annotated_image_path != '')
         ORDER BY e.detected_at DESC
         LIMIT 1
         """
     ).fetchone()
+    latest_has_image = bool(
+        latest_event
+        and (
+            latest_event["image_path"]
+            or latest_event["raw_image_path"]
+            or latest_event["annotated_image_path"]
+        )
+    )
     latest_timing = connection.execute(
         """
         SELECT frames_ms, yolo_ms, ocr_ms, server_ms, total_ms
@@ -739,6 +855,8 @@ def load_dashboard_state() -> dict[str, Any]:
         LIMIT 1
         """
     ).fetchone()
+    if not latest_has_image:
+        latest_timing = None
     daily = connection.execute(
         """
         SELECT event_date, total_events, authorized_count, denied_count, gates_opened
@@ -766,6 +884,7 @@ def load_dashboard_state() -> dict[str, Any]:
         "summary": summary,
         "recent_events": recent_events,
         "latest_event": latest_event,
+        "latest_has_image": latest_has_image,
         "latest_timing": latest_timing,
         "daily": daily,
         "system": system,
@@ -796,13 +915,15 @@ def dashboard_sync():
     summary = dict(state["summary"])
     latest = dict(state["latest_event"]) if state["latest_event"] else None
     if latest is not None:
-        latest["frame_urls"] = {
-            "raw": url_for("event_frame", event_id=latest["id"], variant="raw"),
-            "annotated": url_for(
-                "event_frame", event_id=latest["id"], variant="annotated"
-            ),
-        }
-        latest["image_url"] = latest["frame_urls"]["annotated"]
+        latest["has_image"] = state["latest_has_image"]
+        if latest["has_image"]:
+            latest["frame_urls"] = {
+                "raw": url_for("event_frame", event_id=latest["id"], variant="raw"),
+                "annotated": url_for(
+                    "event_frame", event_id=latest["id"], variant="annotated"
+                ),
+            }
+            latest["image_url"] = latest["frame_urls"]["annotated"]
         latest["image_version"] = latest["id"]
     recent = []
     for row in state["recent_events"]:

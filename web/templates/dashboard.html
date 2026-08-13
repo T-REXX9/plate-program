@@ -39,9 +39,9 @@
 <div class="dashboard-grid">
   <section class="panel full-panel event-photo-panel">
     <div class="panel-heading">
-      <div><h2 id="latest-photo-title">Latest annotated frame</h2><p id="latest-photo-subtitle">Vehicle frame with the detected plate marked</p></div>
+      <div><h2 id="latest-photo-title">{{ 'Latest RFID access' if latest_event and not latest_has_image else 'Latest annotated frame' }}</h2><p id="latest-photo-subtitle">{{ 'RFID decision received from a camera-less controller' if latest_event and not latest_has_image else 'Vehicle frame with the detected plate marked' }}</p></div>
       <div class="capture-heading-actions">
-        <div class="frame-selector" role="group" aria-label="Displayed camera frame">
+        <div id="frame-selector" class="frame-selector" role="group" aria-label="Displayed camera frame" {% if latest_event and not latest_has_image %}hidden{% endif %}>
           <button class="frame-option active" type="button" data-frame-kind="annotated" aria-pressed="true">Annotated</button>
           <button class="frame-option" type="button" data-frame-kind="raw" aria-pressed="false">Raw</button>
         </div>
@@ -49,8 +49,8 @@
         <span id="latest-decision" class="status {{ latest_event.decision if latest_event else '' }}" {% if not latest_event %}hidden{% endif %}>{{ latest_event.decision if latest_event else '' }}</span>
       </div>
     </div>
-      <div id="latest-photo-frame" class="event-photo-frame" data-event-id="{{ latest_event.id if latest_event else '' }}" data-image-version="{{ latest_capture_version or latest_event.id if latest_event else '' }}" {% if not latest_event %}hidden{% endif %}>
-        <img id="latest-photo" {% if latest_event %}src="{{ url_for('event_frame', event_id=latest_event.id, variant='annotated') }}?v={{ latest_event.id }}" alt="Annotated vehicle frame for plate {{ latest_event.plate_number }}"{% else %}alt="Latest annotated vehicle frame"{% endif %}>
+      <div id="latest-photo-frame" class="event-photo-frame" data-event-id="{{ latest_event.id if latest_event else '' }}" data-image-version="{{ latest_capture_version or latest_event.id if latest_event else '' }}" {% if not latest_event or not latest_has_image %}hidden{% endif %}>
+        <img id="latest-photo" {% if latest_event and latest_has_image %}src="{{ url_for('event_frame', event_id=latest_event.id, variant='annotated') }}?v={{ latest_event.id }}" alt="Annotated vehicle frame for plate {{ latest_event.plate_number }}"{% else %}alt="Latest annotated vehicle frame"{% endif %}>
       </div>
       <div id="latest-photo-details" class="event-photo-details" {% if not latest_event %}hidden{% endif %}>
         <span id="latest-plate" class="plate">{{ latest_event.plate_number if latest_event else '' }}</span>
@@ -59,7 +59,7 @@
         <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
         <span id="latest-time">{{ latest_event.local_time if latest_event else '' }}</span>
       </div>
-      <div id="latest-photo-placeholder" class="event-photo-placeholder" {% if latest_event %}hidden{% endif %}><strong>No vehicle captured yet</strong><span>The first raw or annotated camera frame will appear here automatically.</span></div>
+      <div id="latest-photo-placeholder" class="event-photo-placeholder" {% if latest_event and latest_has_image %}hidden{% endif %}><strong id="latest-placeholder-title">{{ 'RFID-only access event' if latest_event else 'No access event yet' }}</strong><span id="latest-placeholder-message">{{ 'This controller has no camera, so no vehicle image was captured.' if latest_event else 'The first plate or RFID access event will appear here automatically.' }}</span></div>
   </section>
 
   <section class="panel wide-panel recent-panel">
