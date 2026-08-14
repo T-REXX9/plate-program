@@ -275,16 +275,31 @@ def reader_form_boolean(field: str) -> bool:
 
 @app.post("/api/rfid-controller/status")
 def rfid_controller_status():
-    """Record a camera-less RFID controller heartbeat."""
+    """Record a camera-less RFID controller heartbeat and live I/O state."""
+    gate_state = request.form.get("gate_state", "idle_closed").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{1,40}", gate_state):
+        return {"error": "Invalid gate state."}, 400
     connection = get_db()
     connection.execute(
         """
         UPDATE system_status
-        SET controller_seen_at = CURRENT_TIMESTAMP,
+        SET controller_type = 'rfid', camera_state = 'unavailable',
+            detector_state = 'idle', gate_state = ?, camera_connected = 0,
+            loop_active = ?, ir_blocked = ?, barrier_open = ?,
+            traffic_green = ?, plate_unrecognized = ?,
+            controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
-        """
+        """,
+        (
+            gate_state,
+            reader_form_boolean("loop_active"),
+            reader_form_boolean("ir_blocked"),
+            reader_form_boolean("barrier_open"),
+            reader_form_boolean("traffic_green"),
+            reader_form_boolean("credential_unrecognized"),
+        ),
     )
     connection.commit()
     return {"accepted": True, "controller_type": "rfid", "camera": False}
@@ -357,7 +372,7 @@ def rfid_controller_recognition():
     connection.execute(
         """
         UPDATE system_status
-        SET last_plate = ?, last_rfid = ?,
+        SET controller_type = 'rfid', last_plate = ?, last_rfid = ?,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
@@ -395,7 +410,7 @@ def reader_status():
     connection.execute(
         """
         UPDATE system_status
-        SET camera_state = ?, detector_state = ?, gate_state = ?,
+        SET controller_type = 'plate', camera_state = ?, detector_state = ?, gate_state = ?,
             camera_connected = ?, loop_active = ?, ir_blocked = ?,
             barrier_open = ?, traffic_green = ?, plate_unrecognized = ?,
             controller_seen_at = CURRENT_TIMESTAMP,
@@ -457,7 +472,7 @@ def reader_next_command():
     connection.execute(
         """
         UPDATE system_status
-        SET camera_state = 'remote', detector_state = 'active',
+        SET controller_type = 'plate', camera_state = 'remote', detector_state = 'active',
             camera_connected = 1, controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
@@ -510,7 +525,7 @@ def reader_complete_command(command_id: int):
     connection.execute(
         """
         UPDATE system_status
-        SET camera_state = 'remote', detector_state = 'idle',
+        SET controller_type = 'plate', camera_state = 'remote', detector_state = 'idle',
             camera_connected = 1, controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = 1
@@ -655,7 +670,7 @@ def reader_recognition():
     connection.execute(
         """
         UPDATE system_status
-        SET camera_state = 'remote', detector_state = 'idle', last_plate = ?,
+        SET controller_type = 'plate', camera_state = 'remote', detector_state = 'idle', last_plate = ?,
             last_rfid = ?, camera_connected = 1,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -867,7 +882,7 @@ def load_dashboard_state() -> dict[str, Any]:
     ).fetchall()
     system = connection.execute(
         """
-        SELECT id, camera_state, detector_state, gate_state,
+        SELECT id, controller_type, camera_state, detector_state, gate_state,
                camera_connected, loop_active, ir_blocked,
                barrier_open, traffic_green, plate_unrecognized,
                (controller_seen_at IS NOT NULL AND
@@ -940,6 +955,7 @@ def dashboard_sync():
         "recent_events": recent,
         "daily": [dict(row) for row in state["daily"]],
         "system": {
+            "controller_type": system["controller_type"],
             "controller_online": bool(system["controller_online"]),
             "camera_running": bool(system["controller_online"] and system["camera_connected"]),
             "camera_state": system["camera_state"],

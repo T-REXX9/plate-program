@@ -42,7 +42,7 @@
     signal("traffic-lamp", "traffic-state", online ? (system.traffic_green ? "green" : "red") : "off", online ? (system.traffic_green ? "GO" : "STOP") : "Unknown");
     signal("plate-result-lamp", "plate-result-state", online ? (system.plate_unrecognized ? "red" : "green") : "off", online ? (system.plate_unrecognized ? "Not recognized" : "Ready") : "Unknown");
     text("hardware-updated", system.controller_seen_at || "Waiting for controller");
-    controlsAvailable = online && system.gate_state !== "disabled";
+    controlsAvailable = online && system.controller_type === "plate" && system.gate_state !== "disabled";
     setControlAvailability();
   };
   const sync = async () => {

@@ -16,7 +16,11 @@
   </div>{% endif %}
 </div>
 
-<div class="top-status-grid activity-only">
+<div class="top-status-grid">
+  <section class="panel system-panel">
+    <div class="panel-heading"><div><h2>Live gate status</h2><p>Raspberry Pi or RFID controller inputs and outputs</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for controller' }}</small></div>
+    {% include '_hardware_indicators.html' %}
+  </section>
   <section class="panel activity-panel">
     <div class="panel-heading"><div><h2>Seven-day activity</h2><p>Daily authorized and denied events</p></div></div>
     <div class="day-grid" id="daily-activity">
@@ -59,7 +63,7 @@
         <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
         <span id="latest-time">{{ latest_event.local_time if latest_event else '' }}</span>
       </div>
-      <div id="latest-photo-placeholder" class="event-photo-placeholder" {% if latest_event and latest_has_image %}hidden{% endif %}><strong id="latest-placeholder-title">{{ 'RFID-only access event' if latest_event else 'No access event yet' }}</strong><span id="latest-placeholder-message">{{ 'This controller has no camera, so no vehicle image was captured.' if latest_event else 'The first plate or RFID access event will appear here automatically.' }}</span></div>
+      <div id="latest-photo-placeholder" class="event-photo-placeholder rfid-access-display" {% if latest_event and latest_has_image %}hidden{% endif %}><strong id="latest-placeholder-title" class="{{ 'rfid-plate-display' if latest_event and not latest_has_image and latest_event.decision == 'authorized' else '' }}">{{ latest_event.plate_number if latest_event and not latest_has_image and latest_event.decision == 'authorized' else ('ACCESS DENIED' if latest_event and not latest_has_image else 'No access event yet') }}</strong><span id="latest-placeholder-message">{{ ('Authorized RFID · ' ~ (latest_event.owner_name or 'Registered vehicle')) if latest_event and not latest_has_image and latest_event.decision == 'authorized' else (('RFID ' ~ (latest_event.rfid_number or 'unknown') ~ ' was denied') if latest_event and not latest_has_image else 'The first plate or RFID access event will appear here automatically.') }}</span></div>
   </section>
 
   <section class="panel wide-panel recent-panel">

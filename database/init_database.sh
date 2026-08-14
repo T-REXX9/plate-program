@@ -89,6 +89,7 @@ ensure_column access_events rfid_authorized 'TINYINT(1) NOT NULL DEFAULT 0 AFTER
 ensure_column access_events raw_image_path 'VARCHAR(500) NULL AFTER image_path'
 ensure_column access_events annotated_image_path 'VARCHAR(500) NULL AFTER raw_image_path'
 ensure_column system_status last_rfid 'VARCHAR(64) NULL AFTER last_plate'
+ensure_column system_status controller_type "VARCHAR(20) NOT NULL DEFAULT 'plate' AFTER id"
 ensure_column system_status camera_connected 'TINYINT(1) NOT NULL DEFAULT 0 AFTER gate_state'
 ensure_column system_status loop_active 'TINYINT(1) NOT NULL DEFAULT 0 AFTER camera_connected'
 ensure_column system_status ir_blocked 'TINYINT(1) NOT NULL DEFAULT 0 AFTER loop_active'

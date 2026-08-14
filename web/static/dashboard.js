@@ -123,6 +123,7 @@
       decision.hidden = true;
       placeholder.hidden = false;
       if (placeholderTitle) placeholderTitle.textContent = "No access event yet";
+      if (placeholderTitle) placeholderTitle.className = "";
       if (placeholderMessage) placeholderMessage.textContent = "The first plate or RFID access event will appear here automatically.";
       if (timingLabel) timingLabel.hidden = true;
       if (accessLed) {
@@ -160,8 +161,16 @@
     details.hidden = false;
     placeholder.hidden = hasImage;
     if (!hasImage) {
-      if (placeholderTitle) placeholderTitle.textContent = "RFID-only access event";
-      if (placeholderMessage) placeholderMessage.textContent = "This controller has no camera, so no vehicle image was captured.";
+      const authorized = event.decision === "authorized";
+      if (placeholderTitle) {
+        placeholderTitle.textContent = authorized ? event.plate_number : "ACCESS DENIED";
+        placeholderTitle.className = authorized ? "rfid-plate-display" : "rfid-denied-display";
+      }
+      if (placeholderMessage) {
+        placeholderMessage.textContent = authorized
+          ? `Authorized RFID · ${event.owner_name || "Registered vehicle"}`
+          : `RFID ${event.rfid_number || "unknown"} was denied`;
+      }
     }
     updateFrameSelector();
   }

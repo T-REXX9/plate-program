@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS reader_commands (
 
 CREATE TABLE IF NOT EXISTS system_status (
     id TINYINT UNSIGNED NOT NULL,
+    controller_type VARCHAR(20) NOT NULL DEFAULT 'plate',
     camera_state VARCHAR(40) NOT NULL DEFAULT 'unknown',
     detector_state VARCHAR(40) NOT NULL DEFAULT 'unknown',
     gate_state VARCHAR(40) NOT NULL DEFAULT 'closed',
