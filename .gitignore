@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .web-venv/
+.playwright-cli/
 Output/
 database/web_secret.key
 database/reader_api.key

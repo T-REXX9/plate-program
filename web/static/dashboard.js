@@ -114,11 +114,13 @@
     const timingLabel = byId("latest-timing");
     const placeholderTitle = byId("latest-placeholder-title");
     const placeholderMessage = byId("latest-placeholder-message");
+    const viewer = byId("latest-viewer-wrap");
     if (!frame || !image || !details || !placeholder || !decision) return;
 
     if (!event) {
       latestEvent = null;
       frame.hidden = true;
+      if (viewer) viewer.hidden = true;
       details.hidden = true;
       decision.hidden = true;
       placeholder.hidden = false;
@@ -157,6 +159,7 @@
       accessLed.title = `Latest access: ${event.decision}`;
     }
     const hasImage = Boolean(event.has_image);
+    if (viewer) viewer.hidden = !hasImage;
     frame.hidden = !hasImage;
     details.hidden = false;
     placeholder.hidden = hasImage;
@@ -175,12 +178,13 @@
     updateFrameSelector();
   }
 
-  function updateCaptureButton(detectorState) {
+  function updateCaptureButton(system) {
     const button = byId("camera-capture-button");
     if (!button) return;
-    const busy = ["queued", "active"].includes(detectorState);
-    button.disabled = busy;
-    button.textContent = busy ? "Capturing…" : "Capture plate";
+    const busy = ["queued", "active"].includes(system.detector_state);
+    const unavailable = system.controller_type === "rfid" || !system.controller_online;
+    button.disabled = busy || unavailable;
+    button.textContent = busy ? "Capturing…" : (unavailable ? "Camera unavailable" : "Capture plate");
   }
 
   function updateRecent(events) {
@@ -224,6 +228,7 @@
       ownerCell.textContent = event.owner_name || "Unknown vehicle";
       vehicleCell.textContent = event.vehicle || "—";
       decisionCell.append(statusBadge(event.decision));
+      row.className = `decision-row ${String(event.decision || "").toLowerCase()}`;
       row.append(timeCell, plateCell, ownerCell, vehicleCell, decisionCell);
       body.append(row);
     });
@@ -245,11 +250,15 @@
       const date = document.createElement("strong");
       const total = document.createElement("span");
       const detail = document.createElement("small");
+      const bar = document.createElement("span");
       card.className = "day-card";
+      bar.className = "day-bar";
+      bar.style.setProperty("--day-total", String(day.total_events || 1));
+      card.title = `${day.total_events} total · ${day.authorized_count} authorized · ${day.denied_count} denied`;
       date.textContent = day.event_date;
-      total.textContent = `${day.total_events} total`;
-      detail.textContent = `${day.authorized_count} authorized · ${day.denied_count} denied`;
-      card.append(date, total, detail);
+      total.textContent = day.total_events;
+      detail.textContent = "";
+      card.append(bar, date, total, detail);
       grid.append(card);
     });
   }
@@ -269,7 +278,7 @@
     signal("traffic-lamp", "traffic-state", online ? (data.system.traffic_green ? "green" : "red") : "off", online ? (data.system.traffic_green ? "GO" : "STOP") : "Unknown");
     signal("plate-result-lamp", "plate-result-state", online ? (data.system.plate_unrecognized ? "red" : "green") : "off", online ? (data.system.plate_unrecognized ? "Not recognized" : "Ready") : "Unknown");
     text("hardware-updated", data.system.controller_seen_at || "Waiting for controller");
-    updateCaptureButton(data.system.detector_state);
+    updateCaptureButton(data.system);
     updateLatest(data.latest_event, data.latest_timing);
     updateRecent(data.recent_events);
     updateDaily(data.daily);

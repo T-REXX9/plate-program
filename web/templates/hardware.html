@@ -1,21 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Hardware · Gatekeeper{% endblock %}
+{% block title %}Hardware Control · Gatekeeper HQ{% endblock %}
+{% block page_name %}Hardware Control{% endblock %}
 {% block body_class %}hardware-page{% endblock %}
 {% block head %}<script src="{{ url_for('static', filename='hardware.js') }}" defer></script>{% endblock %}
 {% block content %}
-<div class="page-heading compact-heading">
-  <div><p class="eyebrow">Maintenance diagnostics <span class="sync-status" id="hardware-sync">Live</span></p><h1>Gate hardware</h1><p>Live controller inputs, outputs, and protected manual tests.</p></div>
+<div class="page-heading compact-heading hardware-title-row">
+  <div><p class="eyebrow">Maintenance diagnostics</p><h1>Hardware Control</h1><p>Direct diagnostic and manual override interface.</p></div>
+  <span class="system-armed"><i></i><span id="hardware-sync">System armed</span></span>
 </div>
 
 <section class="panel hardware-live-panel">
-  <div class="panel-heading"><div><h2>Live indicators</h2><p>Updated automatically from the active gate controller</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for controller' }}</small></div>
+  <div class="panel-heading"><div><h2>Node status</h2><p>Updated automatically from the active gate controller</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for controller' }}</small></div>
   {% set indicator_grid_class = 'hardware-page-grid' %}{% include '_hardware_indicators.html' %}
 </section>
 
 {% if current_role == 'administrator' %}
 {% set hardware_controls_available = system.controller_online and system.controller_type == 'plate' and system.gate_state != 'disabled' %}
 <section class="panel hardware-controls-panel">
-  <div class="panel-heading"><div><h2>Manual output tests</h2><p>{{ 'Commands are executed by the Raspberry Pi controller' if system.controller_type == 'plate' else 'Unavailable for the RFID-only controller' }}</p></div></div>
+  <div class="panel-heading"><div><h2>Manual controls</h2><p>{{ 'Protected Raspberry Pi output tests' if system.controller_type == 'plate' else 'Unavailable for the RFID-only controller' }}</p></div></div>
   <div class="hardware-warning"><strong>Keep the gate area clear.</strong><span>CLOSE is blocked whenever the IR safety beam is interrupted. Traffic-light tests automatically return to normal control after three seconds.</span></div>
   <input id="hardware-csrf" type="hidden" value="{{ csrf_token() }}">
   <div class="hardware-control-groups">

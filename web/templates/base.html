@@ -4,38 +4,58 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light">
-  <title>{% block title %}Gatekeeper{% endblock %}</title>
+  <meta name="theme-color" content="#f8f9fa">
+  <title>{% block title %}Gatekeeper HQ{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <script src="{{ url_for('static', filename='notifications.js') }}" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
   {% if current_user %}
-  <header class="topbar">
-    <a class="brand" href="{{ url_for('dashboard') }}" aria-label="Gatekeeper dashboard">
-      <span class="brand-mark">GK</span>
-      <span><strong>Gatekeeper</strong><small>Plate access control</small></span>
+  <aside class="app-sidebar" aria-label="Primary navigation">
+    <a class="sidebar-brand" href="{{ url_for('dashboard') }}" aria-label="Gatekeeper HQ overview">
+      <span class="brand-shield" aria-hidden="true">G</span>
+      <span><strong>Gatekeeper HQ</strong><small>Plate access control</small></span>
     </a>
-    <nav aria-label="Primary navigation">
-      <a class="{{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}">Overview</a>
-      <a class="{{ 'active' if request.endpoint in ['hardware', 'hardware_command'] else '' }}" href="{{ url_for('hardware') }}">Hardware</a>
+
+    <nav class="sidebar-navigation">
+      <a class="nav-item {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><span class="nav-symbol" aria-hidden="true">▦</span><span>Overview</span></a>
+      <a class="nav-item {{ 'active' if request.endpoint in ['hardware', 'hardware_command'] else '' }}" href="{{ url_for('hardware') }}"><span class="nav-symbol" aria-hidden="true">⌁</span><span>Hardware</span></a>
       {% if current_role == 'administrator' %}
-      <a class="{{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}">Vehicles</a>
-      <a class="{{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}">Guards</a>
+      <a class="nav-item {{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}"><span class="nav-symbol" aria-hidden="true">▰</span><span>Vehicles</span></a>
+      <a class="nav-item {{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}"><span class="nav-symbol" aria-hidden="true">♙</span><span>Guards</span></a>
       {% endif %}
-      <a class="{{ 'active' if request.endpoint in ['logs', 'logs_export'] else '' }}" href="{{ url_for('logs') }}">Access log</a>
+      <a class="nav-item {{ 'active' if request.endpoint in ['logs', 'logs_export'] else '' }}" href="{{ url_for('logs') }}"><span class="nav-symbol" aria-hidden="true">↻</span><span>Access log</span></a>
     </nav>
-    <div class="account">
-      <span>{{ current_user }}{% if current_role == 'viewer' %} · Guard{% endif %}</span>
+
+    <div class="sidebar-account">
+      <div class="account-avatar" aria-hidden="true">{{ current_user[:1] | upper }}</div>
+      <span><strong>{{ current_user }}</strong><small>{{ 'Security guard' if current_role == 'viewer' else 'Administrator' }}</small></span>
       <form method="post" action="{{ url_for('logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="link-button" type="submit">Sign out</button>
+        <button class="icon-button" type="submit" aria-label="Sign out" title="Sign out">⇥</button>
       </form>
     </div>
+  </aside>
+
+  <header class="app-topbar">
+    <div>
+      <strong>{% block page_name %}Plate Program{% endblock %}</strong>
+      <span class="topbar-context">Gate operations console</span>
+    </div>
+    <div class="topbar-user">
+      <span class="topbar-role">{{ 'Guard view' if current_role == 'viewer' else 'Administrator' }}</span>
+      <span class="account-avatar" aria-hidden="true">{{ current_user[:1] | upper }}</span>
+    </div>
+  </header>
+
+  <header class="mobile-header">
+    <a href="{{ url_for('dashboard') }}"><span class="brand-shield" aria-hidden="true">G</span><strong>Plate Program</strong></a>
+    <span class="mobile-user-role">{{ 'Guard' if current_role == 'viewer' else 'Admin' }}</span>
   </header>
   {% endif %}
 
-  <main class="{% if current_user %}page-shell{% else %}auth-shell{% endif %}">
+  <main class="{% if current_user %}app-content{% else %}auth-shell{% endif %}">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
       <div class="flash-stack" aria-live="polite">
@@ -47,5 +67,19 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+
+  {% if current_user %}
+  <nav class="mobile-navigation" aria-label="Mobile navigation">
+    <a class="{{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><span aria-hidden="true">▦</span><small>Overview</small></a>
+    <a class="{{ 'active' if request.endpoint == 'hardware' else '' }}" href="{{ url_for('hardware') }}"><span aria-hidden="true">⌁</span><small>Hardware</small></a>
+    {% if current_role == 'administrator' %}<a class="{{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}"><span aria-hidden="true">▰</span><small>Vehicles</small></a>{% endif %}
+    <a class="{{ 'active' if request.endpoint == 'logs' else '' }}" href="{{ url_for('logs') }}"><span aria-hidden="true">↻</span><small>Logs</small></a>
+    {% if current_role == 'administrator' %}<a class="{{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}"><span aria-hidden="true">♙</span><small>Guards</small></a>{% endif %}
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit"><span aria-hidden="true">⇥</span><small>Sign out</small></button>
+    </form>
+  </nav>
+  {% endif %}
 </body>
 </html>

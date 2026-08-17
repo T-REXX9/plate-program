@@ -1,79 +1,87 @@
 {% extends "base.html" %}
-{% block title %}Overview · Gatekeeper{% endblock %}
+{% block title %}Overview · Gatekeeper HQ{% endblock %}
+{% block page_name %}Plate Program{% endblock %}
 {% block body_class %}dashboard-page{% endblock %}
 {% block head %}<script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>{% endblock %}
 {% block content %}
-<div class="page-heading">
-  <div><p class="eyebrow">Live operations <span class="sync-status" id="sync-status">Connected</span></p><h1>Gate overview</h1><p>Latest access capture, today’s activity, and system health.</p></div>
-  {% if current_role == 'administrator' %}<div class="page-actions">
+<span class="sr-only sync-status" id="sync-status">Connected</span>
+<div class="dashboard-flow">
+  {% if current_role == 'administrator' %}
+  <div class="dashboard-capture-action">
     <form id="camera-capture-form" method="post" action="{{ url_for('camera_capture') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button id="camera-capture-button" class="camera-toggle capture" type="submit" {{ 'disabled' if system.detector_state in ['queued', 'active'] else '' }}>
-        {{ 'Capturing…' if system.detector_state in ['queued', 'active'] else 'Capture plate' }}
+      <button id="camera-capture-button" class="primary-button capture-button" type="submit" {{ 'disabled' if system.detector_state in ['queued', 'active'] or system.controller_type == 'rfid' or not system.controller_online else '' }}>
+        <span aria-hidden="true">◉</span>{{ 'Capturing…' if system.detector_state in ['queued', 'active'] else 'Capture plate' }}
       </button>
     </form>
-    <a class="primary-button" href="{{ url_for('vehicle_new') }}">+ Register vehicle</a>
-  </div>{% endif %}
-</div>
+  </div>
+  {% endif %}
+  <section class="metric-grid" aria-label="Today’s summary">
+    <article class="metric-card"><span>Active vehicles</span><strong id="metric-active-vehicles">{{ summary.active_vehicles }}</strong><small>Allowed registrations</small></article>
+    <article class="metric-card accent"><span>Entries today</span><strong id="metric-events-today">{{ summary.events_today }}</strong><small>All access events</small></article>
+    <article class="metric-card success"><span>Authorized</span><strong id="metric-authorized-today">{{ summary.authorized_today }}</strong><small>Approved today</small></article>
+    <article class="metric-card danger"><span>Denied</span><strong id="metric-denied-today">{{ summary.denied_today }}</strong><small>Rejected today</small></article>
+  </section>
 
-<div class="top-status-grid">
+  <section class="panel event-photo-panel">
+    <div class="panel-heading event-heading">
+      <div><h2>Latest access event</h2><p id="latest-photo-subtitle">{{ 'RFID decision received from a camera-less controller' if latest_event and not latest_has_image else 'Vehicle frame and recognition result' }}</p></div>
+      <div class="capture-heading-actions">
+        <span id="latest-time" class="latest-heading-time">{{ latest_event.local_time if latest_event else '' }}</span>
+        <span id="latest-access-led" class="access-led {{ latest_event.decision if latest_event else 'neutral' }}" role="status" aria-label="{{ 'Latest access ' ~ latest_event.decision if latest_event else 'No access result yet' }}"></span>
+        <span id="latest-decision" class="status {{ latest_event.decision if latest_event else '' }}" {% if not latest_event %}hidden{% endif %}>{{ latest_event.decision if latest_event else '' }}</span>
+      </div>
+    </div>
+
+    <div class="event-card-body">
+      <div id="latest-viewer-wrap" class="viewer-wrap" {% if latest_event and not latest_has_image %}hidden{% endif %}>
+        <div id="frame-selector" class="frame-selector" role="group" aria-label="Displayed camera frame" {% if latest_event and not latest_has_image %}hidden{% endif %}>
+          <button class="frame-option active" type="button" data-frame-kind="annotated" aria-pressed="true">Annotated</button>
+          <button class="frame-option" type="button" data-frame-kind="raw" aria-pressed="false">Raw</button>
+        </div>
+        <div id="latest-photo-frame" class="event-photo-frame" data-event-id="{{ latest_event.id if latest_event else '' }}" data-image-version="{{ latest_capture_version or latest_event.id if latest_event else '' }}" {% if not latest_event or not latest_has_image %}hidden{% endif %}>
+          <img id="latest-photo" {% if latest_event and latest_has_image %}src="{{ url_for('event_frame', event_id=latest_event.id, variant='annotated') }}?v={{ latest_event.id }}" alt="Annotated vehicle frame for plate {{ latest_event.plate_number }}"{% else %}alt="Latest annotated vehicle frame"{% endif %}>
+        </div>
+      </div>
+
+      <div id="latest-photo-placeholder" class="event-photo-placeholder rfid-access-display" {% if latest_event and latest_has_image %}hidden{% endif %}>
+        <strong id="latest-placeholder-title" class="{{ 'rfid-plate-display' if latest_event and not latest_has_image and latest_event.decision == 'authorized' else '' }}">{{ latest_event.plate_number if latest_event and not latest_has_image and latest_event.decision == 'authorized' else ('ACCESS DENIED' if latest_event and not latest_has_image else 'No access event yet') }}</strong>
+        <span id="latest-placeholder-message">{{ ('Authorized RFID · ' ~ (latest_event.owner_name or 'Registered vehicle')) if latest_event and not latest_has_image and latest_event.decision == 'authorized' else (('RFID ' ~ (latest_event.rfid_number or 'unknown') ~ ' was denied') if latest_event and not latest_has_image else 'The first plate or RFID access event will appear here automatically.') }}</span>
+      </div>
+
+      <div id="latest-photo-details" class="event-photo-details" {% if not latest_event %}hidden{% endif %}>
+        <div class="detected-plate-block"><small>Detected plate</small><span id="latest-plate" class="plate plate-display">{{ latest_event.plate_number if latest_event else '' }}</span></div>
+        <div class="owner-avatar" aria-hidden="true">{{ (latest_event.owner_name[:1] if latest_event and latest_event.owner_name else '?') | upper }}</div>
+        <div class="owner-block"><small>Registered owner</small><strong id="latest-owner">{{ latest_event.owner_name or 'Unregistered vehicle' if latest_event else '' }}</strong><span id="latest-rfid" class="rfid-value">RFID {{ (latest_event.rfid_number or 'not read') if latest_event else '' }}</span></div>
+        <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
+      </div>
+    </div>
+  </section>
+
   <section class="panel system-panel">
-    <div class="panel-heading"><div><h2>Live gate status</h2><p>Raspberry Pi or RFID controller inputs and outputs</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for controller' }}</small></div>
+    <div class="panel-heading"><div><h2>Live gate status</h2><p>Current controller inputs and outputs</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for controller' }}</small></div>
     {% include '_hardware_indicators.html' %}
   </section>
+
   <section class="panel activity-panel">
-    <div class="panel-heading"><div><h2>Seven-day activity</h2><p>Daily authorized and denied events</p></div></div>
+    <div class="panel-heading"><div><h2>7-day volume</h2><p>Authorized and denied activity</p></div></div>
     <div class="day-grid" id="daily-activity">
       {% for day in daily %}
-      <div class="day-card"><strong>{{ day.event_date }}</strong><span>{{ day.total_events }} total</span><small>{{ day.authorized_count }} authorized · {{ day.denied_count }} denied</small></div>
+      <div class="day-card" title="{{ day.total_events }} total · {{ day.authorized_count }} authorized · {{ day.denied_count }} denied"><span class="day-bar" style="--day-total: {{ day.total_events }}"></span><strong>{{ day.event_date }}</strong><small>{{ day.total_events }}</small></div>
       {% else %}
       <p class="muted">Daily summaries will appear after the first recognition event.</p>
       {% endfor %}
     </div>
   </section>
-</div>
 
-<section class="metric-grid" aria-label="Today’s summary">
-  <article class="metric-card"><span>Active vehicles</span><strong id="metric-active-vehicles">{{ summary.active_vehicles }}</strong><small>Allowed registrations</small></article>
-  <article class="metric-card accent"><span>Entries today</span><strong id="metric-events-today">{{ summary.events_today }}</strong><small>All recognition events</small></article>
-  <article class="metric-card success"><span>Authorized</span><strong id="metric-authorized-today">{{ summary.authorized_today }}</strong><small>Approved today</small></article>
-  <article class="metric-card danger"><span>Denied</span><strong id="metric-denied-today">{{ summary.denied_today }}</strong><small>Rejected today</small></article>
-</section>
-
-<div class="dashboard-grid">
-  <section class="panel full-panel event-photo-panel">
-    <div class="panel-heading">
-      <div><h2 id="latest-photo-title">{{ 'Latest RFID access' if latest_event and not latest_has_image else 'Latest annotated frame' }}</h2><p id="latest-photo-subtitle">{{ 'RFID decision received from a camera-less controller' if latest_event and not latest_has_image else 'Vehicle frame with the detected plate marked' }}</p></div>
-      <div class="capture-heading-actions">
-        <div id="frame-selector" class="frame-selector" role="group" aria-label="Displayed camera frame" {% if latest_event and not latest_has_image %}hidden{% endif %}>
-          <button class="frame-option active" type="button" data-frame-kind="annotated" aria-pressed="true">Annotated</button>
-          <button class="frame-option" type="button" data-frame-kind="raw" aria-pressed="false">Raw</button>
-        </div>
-        <span id="latest-access-led" class="access-led {{ latest_event.decision if latest_event else 'neutral' }}" role="status" aria-label="{{ 'Latest access ' ~ latest_event.decision if latest_event else 'No access result yet' }}" title="{{ 'Latest access: ' ~ latest_event.decision if latest_event else 'No access result yet' }}"></span>
-        <span id="latest-decision" class="status {{ latest_event.decision if latest_event else '' }}" {% if not latest_event %}hidden{% endif %}>{{ latest_event.decision if latest_event else '' }}</span>
-      </div>
-    </div>
-      <div id="latest-photo-frame" class="event-photo-frame" data-event-id="{{ latest_event.id if latest_event else '' }}" data-image-version="{{ latest_capture_version or latest_event.id if latest_event else '' }}" {% if not latest_event or not latest_has_image %}hidden{% endif %}>
-        <img id="latest-photo" {% if latest_event and latest_has_image %}src="{{ url_for('event_frame', event_id=latest_event.id, variant='annotated') }}?v={{ latest_event.id }}" alt="Annotated vehicle frame for plate {{ latest_event.plate_number }}"{% else %}alt="Latest annotated vehicle frame"{% endif %}>
-      </div>
-      <div id="latest-photo-details" class="event-photo-details" {% if not latest_event %}hidden{% endif %}>
-        <span id="latest-plate" class="plate">{{ latest_event.plate_number if latest_event else '' }}</span>
-        <span id="latest-rfid" class="rfid-value">RFID {{ (latest_event.rfid_number or 'not read') if latest_event else '' }}</span>
-        <strong id="latest-owner">{{ latest_event.owner_name or 'Unregistered vehicle' if latest_event else '' }}</strong>
-        <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
-        <span id="latest-time">{{ latest_event.local_time if latest_event else '' }}</span>
-      </div>
-      <div id="latest-photo-placeholder" class="event-photo-placeholder rfid-access-display" {% if latest_event and latest_has_image %}hidden{% endif %}><strong id="latest-placeholder-title" class="{{ 'rfid-plate-display' if latest_event and not latest_has_image and latest_event.decision == 'authorized' else '' }}">{{ latest_event.plate_number if latest_event and not latest_has_image and latest_event.decision == 'authorized' else ('ACCESS DENIED' if latest_event and not latest_has_image else 'No access event yet') }}</strong><span id="latest-placeholder-message">{{ ('Authorized RFID · ' ~ (latest_event.owner_name or 'Registered vehicle')) if latest_event and not latest_has_image and latest_event.decision == 'authorized' else (('RFID ' ~ (latest_event.rfid_number or 'unknown') ~ ' was denied') if latest_event and not latest_has_image else 'The first plate or RFID access event will appear here automatically.') }}</span></div>
-  </section>
-
-  <section class="panel wide-panel recent-panel">
-    <div class="panel-heading"><div><h2>Recent access</h2><p>Latest eight vehicles seen at the gate</p></div><a href="{{ url_for('logs') }}">View all</a></div>
+  <section class="panel recent-panel">
+    <div class="panel-heading"><div><h2>Recent access log</h2><p>Latest eight vehicles seen at the gate</p></div><a href="{{ url_for('logs') }}">View all</a></div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Time</th><th>Plate / RFID</th><th>Owner</th><th>Vehicle</th><th>Decision</th></tr></thead>
         <tbody id="recent-events-body">
         {% for event in recent_events %}
-          <tr>
+          <tr class="decision-row {{ event.decision }}">
             <td class="nowrap">{{ event.local_time }}</td>
             <td><span class="plate">{{ event.plate_number }}</span><small class="cell-note">RFID {{ event.rfid_number or '—' }}</small></td>
             <td>{{ event.owner_name or 'Unknown vehicle' }}</td>
@@ -87,6 +95,5 @@
       </table>
     </div>
   </section>
-
 </div>
 {% endblock %}

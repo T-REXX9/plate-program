@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit vehicle' if editing else 'Register vehicle' }} · Gatekeeper{% endblock %}
+{% block page_name %}{{ 'Edit Vehicle' if editing else 'Register Vehicle' }}{% endblock %}
 {% block content %}
 <div class="page-heading compact-heading">
   <div><p class="eyebrow">Vehicle registry</p><h1>{{ 'Edit vehicle' if editing else 'Register a vehicle' }}</h1><p>Plate values are stored as uppercase letters and digits without spaces or hyphens.</p></div>
