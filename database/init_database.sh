@@ -77,6 +77,8 @@ ensure_index() {
 }
 
 ensure_column access_events rfid_number 'VARCHAR(64) NULL AFTER plate_number'
+ensure_column access_events controller_uid 'VARCHAR(64) NULL AFTER id'
+ensure_column reader_commands controller_uid 'VARCHAR(64) NULL AFTER id'
 ensure_column reader_commands serial_tx_hex 'VARCHAR(1024) NULL AFTER result_message'
 ensure_column reader_commands serial_baud 'INT UNSIGNED NULL AFTER serial_tx_hex'
 ensure_column reader_commands serial_data_bits 'TINYINT UNSIGNED NULL AFTER serial_baud'
@@ -98,6 +100,8 @@ ensure_column system_status traffic_green 'TINYINT(1) NOT NULL DEFAULT 0 AFTER b
 ensure_column system_status plate_unrecognized 'TINYINT(1) NOT NULL DEFAULT 0 AFTER traffic_green'
 ensure_column system_status controller_seen_at 'TIMESTAMP NULL AFTER plate_unrecognized'
 ensure_index access_events idx_access_events_rfid 'KEY idx_access_events_rfid (rfid_number, detected_at DESC)'
+ensure_index access_events idx_access_events_controller 'KEY idx_access_events_controller (controller_uid, detected_at DESC)'
+ensure_index reader_commands idx_reader_commands_controller_status 'KEY idx_reader_commands_controller_status (controller_uid, status, created_at)'
 
 # Move values created by the first RFID prototype into the normalized sticker
 # table. The legacy vehicles.rfid_number column is intentionally left in place

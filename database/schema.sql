@@ -39,8 +39,35 @@ CREATE TABLE IF NOT EXISTS rfid_stickers (
     CONSTRAINT chk_rfid_stickers_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS controllers (
+    controller_uid VARCHAR(64) NOT NULL,
+    display_name VARCHAR(100) NOT NULL,
+    controller_type ENUM('rfid', 'plate') NOT NULL,
+    camera_state VARCHAR(40) NOT NULL DEFAULT 'unknown',
+    detector_state VARCHAR(40) NOT NULL DEFAULT 'unknown',
+    gate_state VARCHAR(40) NOT NULL DEFAULT 'closed',
+    camera_connected TINYINT(1) NOT NULL DEFAULT 0,
+    loop_active TINYINT(1) NOT NULL DEFAULT 0,
+    ir_blocked TINYINT(1) NOT NULL DEFAULT 0,
+    barrier_open TINYINT(1) NOT NULL DEFAULT 0,
+    traffic_green TINYINT(1) NOT NULL DEFAULT 0,
+    plate_unrecognized TINYINT(1) NOT NULL DEFAULT 0,
+    last_plate VARCHAR(20) NULL,
+    last_rfid VARCHAR(64) NULL,
+    controller_seen_at TIMESTAMP NULL,
+    last_heartbeat TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (controller_uid),
+    KEY idx_controllers_seen (controller_seen_at DESC),
+    CONSTRAINT chk_controllers_uid CHECK (
+        controller_uid REGEXP '^[A-Za-z0-9._:-]{1,64}$'
+    )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE IF NOT EXISTS access_events (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    controller_uid VARCHAR(64) NULL,
     vehicle_id BIGINT UNSIGNED NULL,
     plate_number VARCHAR(20) NOT NULL,
     rfid_number VARCHAR(64) NULL,
@@ -61,6 +88,7 @@ CREATE TABLE IF NOT EXISTS access_events (
     KEY idx_access_events_plate (plate_number, detected_at DESC),
     KEY idx_access_events_rfid (rfid_number, detected_at DESC),
     KEY idx_access_events_decision (decision, detected_at DESC),
+    KEY idx_access_events_controller (controller_uid, detected_at DESC),
     CONSTRAINT fk_access_events_vehicle FOREIGN KEY (vehicle_id)
         REFERENCES vehicles(id) ON DELETE SET NULL,
     CONSTRAINT chk_access_detector_confidence CHECK (
@@ -102,6 +130,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE TABLE IF NOT EXISTS reader_commands (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    controller_uid VARCHAR(64) NULL,
     command_type ENUM(
         'capture', 'barrier_open', 'barrier_close',
         'traffic_red', 'traffic_green', 'rfid_serial'
@@ -126,6 +155,7 @@ CREATE TABLE IF NOT EXISTS reader_commands (
     total_ms INT UNSIGNED NULL,
     PRIMARY KEY (id),
     KEY idx_reader_commands_status_created (status, created_at),
+    KEY idx_reader_commands_controller_status (controller_uid, status, created_at),
     CONSTRAINT fk_reader_commands_user FOREIGN KEY (requested_by)
         REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -104,6 +104,33 @@
       : `Annotated vehicle frame for plate ${latestEvent.plate_number}`;
   }
 
+  function updateDeniedRegistration(event) {
+    const actions = byId("denied-registration-actions");
+    if (!actions) return;
+    const plateButton = byId("register-denied-plate");
+    const rfidButton = byId("register-denied-rfid");
+    const denied = event?.decision === "denied";
+    const plate = denied && !["RFID", "UNREADABLE"].includes(event.plate_number)
+      ? String(event.plate_number || "")
+      : "";
+    const rfid = denied ? String(event.rfid_number || "") : "";
+    actions.hidden = !plate && !rfid;
+    const registrationUrl = () => {
+      const parameters = new URLSearchParams();
+      if (plate) parameters.set("plate_number", plate);
+      if (rfid) parameters.set("rfid_number", rfid);
+      return `/vehicles/new?${parameters.toString()}`;
+    };
+    if (plateButton) {
+      plateButton.hidden = !plate;
+      if (plate) plateButton.href = registrationUrl();
+    }
+    if (rfidButton) {
+      rfidButton.hidden = !rfid;
+      if (rfid) rfidButton.href = registrationUrl();
+    }
+  }
+
   function updateLatest(event, timing) {
     const frame = byId("latest-photo-frame");
     const image = byId("latest-photo");
@@ -118,6 +145,7 @@
     if (!frame || !image || !details || !placeholder || !decision) return;
 
     if (!event) {
+      updateDeniedRegistration(null);
       latestEvent = null;
       frame.hidden = true;
       if (viewer) viewer.hidden = true;
@@ -137,6 +165,7 @@
     }
 
     latestEvent = event;
+    updateDeniedRegistration(event);
     showSelectedFrame();
     text("latest-plate", event.plate_number);
     text("latest-rfid", `RFID ${event.rfid_number || "not read"}`);
@@ -269,9 +298,17 @@
     text("metric-authorized-today", data.summary.authorized_today);
     text("metric-denied-today", data.summary.denied_today);
     const online = Boolean(data.system.controller_online);
+    const rfidOnly = data.system.controller_type === "rfid";
     const moving = ["opening", "closing", "fault"].includes(data.system.gate_state);
     signal("controller-lamp", "controller-state", online ? "green" : "red", online ? "Connected" : "Offline");
-    signal("camera-lamp", "camera-state", online && data.system.camera_running ? "green" : "red", online && data.system.camera_running ? "Detected" : "Unavailable");
+    text("reader-status-icon", rfidOnly ? "◎" : "◉");
+    text("reader-status-label", rfidOnly ? "RFID reader" : "Camera");
+    signal(
+      "camera-lamp",
+      "camera-state",
+      rfidOnly ? (online ? "green" : "red") : (online && data.system.camera_running ? "green" : "red"),
+      rfidOnly ? (online ? "Active" : "Offline") : (online && data.system.camera_running ? "Detected" : "Unavailable"),
+    );
     signal("loop-lamp", "loop-state", online ? (data.system.loop_active ? "green" : "red") : "off", online ? (data.system.loop_active ? "Vehicle present" : "Clear") : "Unknown");
     signal("ir-lamp", "ir-state", online ? (data.system.ir_blocked ? "red" : "green") : "off", online ? (data.system.ir_blocked ? "Blocked" : "Clear") : "Unknown");
     signal("barrier-lamp", "barrier-state", online ? (moving ? "amber" : (data.system.barrier_open ? "green" : "red")) : "off", online ? titleCase(String(data.system.gate_state || "unknown").replaceAll("_", " ")) : "Unknown");

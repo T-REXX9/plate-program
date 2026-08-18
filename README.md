@@ -44,6 +44,36 @@ for example `3045673030553F9030553F90`.
     field and never transmit until the administrator confirms Send. The lane
     should remain clear during this test.
 
+## Multiple controllers
+
+One Plate Program server can manage multiple lanes at the same time. Raspberry
+Pi controllers register as **Plate + RFID** units using the Pi serial number (or
+the machine ID as a fallback). Camera-less controllers register as **RFID only**
+units using their chip identity. Every heartbeat, recognition, access event, and
+remote command carries that stable controller ID.
+
+The selector at the top-right of the website shows all known controllers with a
+filled dot for online and an empty dot for offline. The line below the selected
+name shows its controller type and permanent ID. Administrators can use the
+pencil button to give each controller a recognizable name such as `North Gate`.
+Switching controllers changes the live hardware state, latest capture/RFID
+decision, access counters, seven-day activity, recent events, access log, and
+hardware-command target. Vehicle and RFID registrations remain shared across
+all controllers so the same registered credential can be authorized at any
+lane.
+
+When the latest event is denied, administrators can register its detected plate
+or RFID directly from the Overview. The registration form receives the detected
+value automatically. The Vehicles page supports normalized plate searches (so
+`ZAT-255` finds `ZAT255`) and provides edit, disable/enable, and confirmed
+permanent-delete actions. Deleting a vehicle removes its RFID assignment but
+keeps its historical access events.
+
+For a custom Raspberry Pi identifier, set `CONTROLLER_ID` in the controller's
+private `.env`. It must be unique and contain only letters, numbers, `.`, `-`,
+`_`, or `:`. Normally the automatically generated hardware-based ID should be
+left unchanged.
+
 ## One-time installation
 
 On a fresh macOS computer, or an Ubuntu 20.04-or-newer computer, run:

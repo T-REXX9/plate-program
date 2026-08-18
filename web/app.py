@@ -115,6 +115,84 @@ def initialize_database() -> None:
             statement = statement.strip()
             if statement:
                 connection.execute(statement)
+        # CREATE TABLE IF NOT EXISTS does not add columns to an installation
+        # upgraded from the original single-controller schema.
+        for table, column, definition in (
+            ("access_events", "controller_uid", "VARCHAR(64) NULL AFTER id"),
+            ("reader_commands", "controller_uid", "VARCHAR(64) NULL AFTER id"),
+        ):
+            present = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+                """,
+                (table, column),
+            ).fetchone()["count"]
+            if not present:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        for table, index_name, definition in (
+            (
+                "access_events",
+                "idx_access_events_controller",
+                "KEY idx_access_events_controller (controller_uid, detected_at DESC)",
+            ),
+            (
+                "reader_commands",
+                "idx_reader_commands_controller_status",
+                "KEY idx_reader_commands_controller_status (controller_uid, status, created_at)",
+            ),
+        ):
+            present = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM information_schema.statistics
+                WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?
+                """,
+                (table, index_name),
+            ).fetchone()["count"]
+            if not present:
+                connection.execute(f"ALTER TABLE {table} ADD {definition}")
+        # Preserve the original singleton controller and its history on the
+        # first upgrade. New controller software subsequently reports a stable
+        # per-device ID and appears as its own selector entry.
+        controller_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM controllers"
+        ).fetchone()["count"]
+        if not controller_count:
+            legacy = connection.execute(
+                "SELECT * FROM system_status WHERE id = 1"
+            ).fetchone()
+            if legacy is not None:
+                controller_type = "rfid" if legacy.get("controller_type") == "rfid" else "plate"
+                legacy_uid = f"legacy-{controller_type}-controller"
+                connection.execute(
+                    """
+                    INSERT INTO controllers (
+                        controller_uid, display_name, controller_type,
+                        camera_state, detector_state, gate_state,
+                        camera_connected, loop_active, ir_blocked, barrier_open,
+                        traffic_green, plate_unrecognized, last_plate, last_rfid,
+                        controller_seen_at, last_heartbeat
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        legacy_uid,
+                        "Legacy RFID Controller" if controller_type == "rfid" else "Legacy Plate + RFID Controller",
+                        controller_type,
+                        legacy["camera_state"], legacy["detector_state"], legacy["gate_state"],
+                        legacy["camera_connected"], legacy["loop_active"], legacy["ir_blocked"],
+                        legacy["barrier_open"], legacy["traffic_green"],
+                        legacy["plate_unrecognized"], legacy["last_plate"], legacy["last_rfid"],
+                        legacy["controller_seen_at"], legacy["last_heartbeat"],
+                    ),
+                )
+                connection.execute(
+                    "UPDATE access_events SET controller_uid = ? WHERE controller_uid IS NULL",
+                    (legacy_uid,),
+                )
+                connection.execute(
+                    "UPDATE reader_commands SET controller_uid = ? WHERE controller_uid IS NULL",
+                    (legacy_uid,),
+                )
         connection.commit()
     finally:
         connection.close()
@@ -224,11 +302,24 @@ def csrf_token() -> str:
 
 @app.context_processor
 def template_context() -> dict[str, Any]:
-    return {
+    context = {
         "csrf_token": csrf_token,
         "current_user": session.get("username"),
         "current_role": session.get("role"),
     }
+    if session.get("user_id"):
+        connection = get_db()
+        controllers = controller_records(connection)
+        selected_uid = selected_controller_uid(connection)
+        context.update(
+            controllers=controllers,
+            selected_controller_uid=selected_uid,
+            selected_controller=next(
+                (row for row in controllers if row["controller_uid"] == selected_uid),
+                None,
+            ),
+        )
+    return context
 
 
 @app.before_request
@@ -273,24 +364,155 @@ def reader_form_boolean(field: str) -> bool:
     }
 
 
+def normalize_controller_uid(value: str, fallback: str) -> str:
+    candidate = (value or fallback).strip()
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,64}", candidate):
+        raise ValueError("Controller ID must use only letters, numbers, dot, dash, colon, or underscore.")
+    return candidate
+
+
+def request_controller_uid(fallback: str) -> str:
+    return normalize_controller_uid(request.form.get("controller_id", ""), fallback)
+
+
+def default_controller_name(controller_uid: str, controller_type: str) -> str:
+    label = "RFID Controller" if controller_type == "rfid" else "Plate + RFID Controller"
+    suffix = controller_uid[-8:] if len(controller_uid) > 8 else controller_uid
+    return f"{label} {suffix}"
+
+
+def ensure_controller(
+    connection: DatabaseConnection,
+    controller_uid: str,
+    controller_type: str,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO controllers (controller_uid, display_name, controller_type)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE controller_type = VALUES(controller_type)
+        """,
+        (
+            controller_uid,
+            default_controller_name(controller_uid, controller_type),
+            controller_type,
+        ),
+    )
+
+
+def controller_records(connection: DatabaseConnection) -> list[dict[str, Any]]:
+    return connection.execute(
+        """
+        SELECT controller_uid, display_name, controller_type,
+               controller_seen_at IS NOT NULL AND
+               controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP)
+                   AS controller_online,
+               DATE_FORMAT(controller_seen_at, '%Y-%m-%d %H:%i:%s') AS controller_seen_at
+        FROM controllers
+        ORDER BY controller_online DESC, display_name, controller_uid
+        """
+    ).fetchall()
+
+
+def selected_controller_uid(connection: DatabaseConnection) -> str | None:
+    controllers = controller_records(connection)
+    if not controllers:
+        session.pop("active_controller_uid", None)
+        return None
+    known = {row["controller_uid"] for row in controllers}
+    selected = session.get("active_controller_uid")
+    if selected not in known:
+        selected = controllers[0]["controller_uid"]
+        session["active_controller_uid"] = selected
+    return selected
+
+
+@app.post("/controllers/select")
+@login_required
+def select_controller():
+    try:
+        controller_uid = normalize_controller_uid(
+            request.form.get("controller_uid", ""), ""
+        )
+    except ValueError as error:
+        return {"success": False, "message": str(error)}, 400
+    exists = get_db().execute(
+        "SELECT 1 FROM controllers WHERE controller_uid = ?", (controller_uid,)
+    ).fetchone()
+    if exists is None:
+        return {"success": False, "message": "Controller not found."}, 404
+    session["active_controller_uid"] = controller_uid
+    return {"success": True, "controller_id": controller_uid}
+
+
+@app.post("/controllers/name")
+@role_required("administrator")
+def name_controller():
+    try:
+        controller_uid = normalize_controller_uid(
+            request.form.get("controller_uid", ""), ""
+        )
+    except ValueError as error:
+        return {"success": False, "message": str(error)}, 400
+    display_name = " ".join(request.form.get("display_name", "").split())
+    if not 2 <= len(display_name) <= 100:
+        return {"success": False, "message": "Name must contain 2 to 100 characters."}, 400
+    connection = get_db()
+    cursor = connection.execute(
+        "UPDATE controllers SET display_name = ? WHERE controller_uid = ?",
+        (display_name, controller_uid),
+    )
+    if cursor.rowcount == 0:
+        return {"success": False, "message": "Controller not found."}, 404
+    connection.commit()
+    record_audit("rename_controller", "controller", None, f"{controller_uid} renamed to {display_name}")
+    connection.commit()
+    return {"success": True, "display_name": display_name}
+
+
+@app.get("/api/controllers")
+@login_required
+def controllers_status():
+    connection = get_db()
+    selected_uid = selected_controller_uid(connection)
+    return {
+        "selected_controller_id": selected_uid,
+        "controllers": [
+            {
+                "controller_id": row["controller_uid"],
+                "display_name": row["display_name"],
+                "controller_type": row["controller_type"],
+                "controller_online": bool(row["controller_online"]),
+                "last_seen": row["controller_seen_at"],
+            }
+            for row in controller_records(connection)
+        ],
+    }, 200, {"Cache-Control": "no-store"}
+
+
 @app.post("/api/rfid-controller/status")
 def rfid_controller_status():
     """Record a camera-less RFID controller heartbeat and live I/O state."""
     gate_state = request.form.get("gate_state", "idle_closed").strip().lower()
     if not re.fullmatch(r"[a-z0-9_]{1,40}", gate_state):
         return {"error": "Invalid gate state."}, 400
+    try:
+        controller_uid = request_controller_uid("legacy-rfid-controller")
+    except ValueError as error:
+        return {"error": str(error)}, 400
     connection = get_db()
+    ensure_controller(connection, controller_uid, "rfid")
     connection.execute(
         """
-        UPDATE system_status
-        SET controller_type = 'rfid', camera_state = 'unavailable',
+        UPDATE controllers
+        SET camera_state = 'unavailable',
             detector_state = 'idle', gate_state = ?, camera_connected = 0,
             loop_active = ?, ir_blocked = ?, barrier_open = ?,
             traffic_green = ?, plate_unrecognized = ?,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
+        WHERE controller_uid = ?
         """,
         (
             gate_state,
@@ -299,10 +521,11 @@ def rfid_controller_status():
             reader_form_boolean("barrier_open"),
             reader_form_boolean("traffic_green"),
             reader_form_boolean("credential_unrecognized"),
+            controller_uid,
         ),
     )
     connection.commit()
-    return {"accepted": True, "controller_type": "rfid", "camera": False}
+    return {"accepted": True, "controller_id": controller_uid, "controller_type": "rfid", "camera": False}
 
 
 @app.post("/api/rfid-controller/recognitions")
@@ -312,7 +535,12 @@ def rfid_controller_recognition():
     if len(rfid_number) < 4 or len(rfid_number) > 64:
         return {"error": "A valid RFID value containing 4 to 64 characters is required."}, 400
 
+    try:
+        controller_uid = request_controller_uid("legacy-rfid-controller")
+    except ValueError as error:
+        return {"error": str(error)}, 400
     connection = get_db()
+    ensure_controller(connection, controller_uid, "rfid")
     vehicle = connection.execute(
         """
         SELECT v.id, v.plate_number, v.owner_name, v.vehicle_type, v.make, v.model
@@ -334,7 +562,7 @@ def rfid_controller_recognition():
     duplicate = connection.execute(
         """
         SELECT id FROM access_events
-        WHERE rfid_number = ?
+        WHERE controller_uid = ? AND rfid_number = ?
           AND detected_at >= TIMESTAMPADD(
             SECOND,
             -CAST(COALESCE((SELECT `value` FROM settings
@@ -343,19 +571,20 @@ def rfid_controller_recognition():
         )
         ORDER BY detected_at DESC LIMIT 1
         """,
-        (rfid_number,),
+        (controller_uid, rfid_number),
     ).fetchone()
     event_id = duplicate["id"] if duplicate else None
     if duplicate is None:
         cursor = connection.execute(
             """
             INSERT INTO access_events (
-                vehicle_id, plate_number, rfid_number, rfid_required,
+                controller_uid, vehicle_id, plate_number, rfid_number, rfid_required,
                 rfid_authorized, decision, gate_action, detector_confidence,
                 notes
-            ) VALUES (?, ?, ?, 1, ?, ?, ?, NULL, ?)
+            ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, NULL, ?)
             """,
             (
+                controller_uid,
                 vehicle["id"] if vehicle else None,
                 plate,
                 rfid_number,
@@ -371,18 +600,19 @@ def rfid_controller_recognition():
     # controller may be using those fields at the same time.
     connection.execute(
         """
-        UPDATE system_status
-        SET controller_type = 'rfid', last_plate = ?, last_rfid = ?,
+        UPDATE controllers
+        SET last_plate = ?, last_rfid = ?,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
+        WHERE controller_uid = ?
         """,
-        (plate, rfid_number),
+        (plate, rfid_number, controller_uid),
     )
     connection.commit()
     return {
         "accepted": True,
+        "controller_id": controller_uid,
         "authorized": authorized,
         "decision": decision,
         "duplicate": duplicate is not None,
@@ -406,17 +636,22 @@ def reader_status():
     detector_state = request.form.get("detector_state", "idle").strip().lower()
     if detector_state not in {"idle", "active"}:
         return {"error": "Invalid detector state."}, 400
+    try:
+        controller_uid = request_controller_uid("legacy-plate-controller")
+    except ValueError as error:
+        return {"error": str(error)}, 400
     connection = get_db()
+    ensure_controller(connection, controller_uid, "plate")
     connection.execute(
         """
-        UPDATE system_status
-        SET controller_type = 'plate', camera_state = ?, detector_state = ?, gate_state = ?,
+        UPDATE controllers
+        SET camera_state = ?, detector_state = ?, gate_state = ?,
             camera_connected = ?, loop_active = ?, ir_blocked = ?,
             barrier_open = ?, traffic_green = ?, plate_unrecognized = ?,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
+        WHERE controller_uid = ?
         """,
         (
             "remote" if camera_connected else "unavailable",
@@ -428,24 +663,31 @@ def reader_status():
             reader_form_boolean("barrier_open"),
             reader_form_boolean("traffic_green"),
             reader_form_boolean("plate_unrecognized"),
+            controller_uid,
         ),
     )
     connection.commit()
-    return {"accepted": True}
+    return {"accepted": True, "controller_id": controller_uid}
 
 
 @app.post("/api/reader/commands/next")
 def reader_next_command():
+    try:
+        controller_uid = request_controller_uid("legacy-plate-controller")
+    except ValueError as error:
+        return {"error": str(error)}, 400
     connection = get_db()
+    ensure_controller(connection, controller_uid, "plate")
     connection.execute("START TRANSACTION")
     connection.execute(
         """
         UPDATE reader_commands
         SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
             result_message = 'Hardware command expired before controller pickup'
-        WHERE status = 'pending' AND command_type != 'capture'
+        WHERE controller_uid = ? AND status = 'pending' AND command_type != 'capture'
           AND created_at < TIMESTAMPADD(SECOND, -10, CURRENT_TIMESTAMP)
-        """
+        """,
+        (controller_uid,),
     )
     command = connection.execute(
         """
@@ -453,10 +695,11 @@ def reader_next_command():
                serial_data_bits, serial_parity, serial_stop_bits,
                serial_timeout_ms
         FROM reader_commands
-        WHERE status = 'pending'
+        WHERE controller_uid = ? AND status = 'pending'
         ORDER BY created_at, id
         LIMIT 1 FOR UPDATE
-        """
+        """,
+        (controller_uid,),
     ).fetchone()
     if command is None:
         connection.commit()
@@ -471,12 +714,13 @@ def reader_next_command():
     )
     connection.execute(
         """
-        UPDATE system_status
-        SET controller_type = 'plate', camera_state = 'remote', detector_state = 'active',
+        UPDATE controllers
+        SET camera_state = 'remote', detector_state = 'active',
             camera_connected = 1, controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
-        """
+        WHERE controller_uid = ?
+        """,
+        (controller_uid,),
     )
     connection.commit()
     response = {
@@ -497,6 +741,10 @@ def reader_next_command():
 
 @app.post("/api/reader/commands/<int:command_id>/complete")
 def reader_complete_command(command_id: int):
+    try:
+        controller_uid = request_controller_uid("legacy-plate-controller")
+    except ValueError as error:
+        return {"error": str(error)}, 400
     requested_status = request.form.get("status", "completed")
     status = requested_status if requested_status in {"completed", "failed"} else "failed"
     message = request.form.get("message", "")[:500] or None
@@ -518,18 +766,19 @@ def reader_complete_command(command_id: int):
             frames_ms = COALESCE(?, frames_ms), yolo_ms = COALESCE(?, yolo_ms),
             ocr_ms = COALESCE(?, ocr_ms), server_ms = COALESCE(?, server_ms),
             total_ms = COALESCE(?, total_ms)
-        WHERE id = ?
+        WHERE id = ? AND controller_uid = ?
         """,
-        (status, message, response_data, *timings, command_id),
+        (status, message, response_data, *timings, command_id, controller_uid),
     )
     connection.execute(
         """
-        UPDATE system_status
-        SET controller_type = 'plate', camera_state = 'remote', detector_state = 'idle',
+        UPDATE controllers
+        SET camera_state = 'remote', detector_state = 'idle',
             camera_connected = 1, controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
-        """
+        WHERE controller_uid = ?
+        """,
+        (controller_uid,),
     )
     connection.commit()
     return {"accepted": cursor.rowcount > 0, "command_id": command_id, "status": status}
@@ -537,6 +786,10 @@ def reader_complete_command(command_id: int):
 
 @app.post("/api/reader/recognitions")
 def reader_recognition():
+    try:
+        controller_uid = request_controller_uid("legacy-plate-controller")
+    except ValueError as error:
+        return {"error": str(error)}, 400
     plate = normalize_plate(request.form.get("plate", ""))
     if not plate or len(plate) > 20:
         return {"error": "A valid alphanumeric plate is required."}, 400
@@ -570,6 +823,7 @@ def reader_recognition():
         return {"error": "The enhanced plate crop is required."}, 400
 
     connection = get_db()
+    ensure_controller(connection, controller_uid, "plate")
     vehicle = connection.execute(
         """
         SELECT id, owner_name FROM vehicles
@@ -609,7 +863,7 @@ def reader_recognition():
     duplicate = None if is_no_plate_capture else connection.execute(
         """
         SELECT id FROM access_events
-        WHERE plate_number = ? AND COALESCE(rfid_number, '') = ?
+        WHERE controller_uid = ? AND plate_number = ? AND COALESCE(rfid_number, '') = ?
           AND detected_at >= TIMESTAMPADD(
             SECOND,
             -CAST(COALESCE((SELECT `value` FROM settings
@@ -618,7 +872,7 @@ def reader_recognition():
         )
         ORDER BY detected_at DESC LIMIT 1
         """,
-        (plate, rfid_number),
+        (controller_uid, plate, rfid_number),
     ).fetchone()
 
     event_id = duplicate["id"] if duplicate else None
@@ -645,13 +899,14 @@ def reader_recognition():
         cursor = connection.execute(
             """
             INSERT INTO access_events (
-                vehicle_id, plate_number, rfid_number, rfid_required,
+                controller_uid, vehicle_id, plate_number, rfid_number, rfid_required,
                 rfid_authorized, decision, gate_action,
                 detector_confidence, image_path, raw_image_path,
                 annotated_image_path, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, 'not_requested', ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'not_requested', ?, ?, ?, ?, ?)
             """,
             (
+                controller_uid,
                 authorized_vehicle["id"] if authorized_vehicle else None,
                 plate,
                 rfid_number or None,
@@ -669,14 +924,14 @@ def reader_recognition():
 
     connection.execute(
         """
-        UPDATE system_status
-        SET controller_type = 'plate', camera_state = 'remote', detector_state = 'idle', last_plate = ?,
+        UPDATE controllers
+        SET camera_state = 'remote', detector_state = 'idle', last_plate = ?,
             last_rfid = ?, camera_connected = 1,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
+        WHERE controller_uid = ?
         """,
-        (plate, rfid_number or None),
+        (plate, rfid_number or None, controller_uid),
     )
     try:
         command_id = int(request.form.get("command_id", "0"))
@@ -688,17 +943,19 @@ def reader_recognition():
             UPDATE reader_commands
             SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
                 result_message = ?
-            WHERE id = ? AND status IN ('pending', 'active')
+            WHERE id = ? AND controller_uid = ? AND status IN ('pending', 'active')
             """,
             (
                 f"Recognized {plate}"
                 + (f" / RFID {rfid_number}" if rfid_number else ""),
                 command_id,
+                controller_uid,
             ),
         )
     connection.commit()
     return {
         "accepted": True,
+        "controller_id": controller_uid,
         "authorized": authorized,
         "decision": decision,
         "duplicate": duplicate is not None,
@@ -802,32 +1059,37 @@ def logout():
 
 def load_dashboard_state() -> dict[str, Any]:
     connection = get_db()
+    controller_uid = selected_controller_uid(connection)
+    scoped_uid = controller_uid or "__no_controller__"
     expired = connection.execute(
         """
         UPDATE reader_commands
         SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
             result_message = 'Command timed out before completion'
-        WHERE status IN ('pending', 'active')
+        WHERE controller_uid = ? AND status IN ('pending', 'active')
           AND COALESCE(started_at, created_at) < TIMESTAMPADD(MINUTE, -2, CURRENT_TIMESTAMP)
-        """
+        """,
+        (scoped_uid,),
     )
     if expired.rowcount > 0:
         connection.execute(
             """
-            UPDATE system_status
+            UPDATE controllers
             SET detector_state = 'idle', updated_at = CURRENT_TIMESTAMP
-            WHERE id = 1
-            """
+            WHERE controller_uid = ?
+            """,
+            (scoped_uid,),
         )
         connection.commit()
     summary = connection.execute(
         """
         SELECT
             (SELECT count(*) FROM vehicles WHERE is_active = 1) AS active_vehicles,
-            (SELECT count(*) FROM access_events WHERE DATE(detected_at) = CURRENT_DATE) AS events_today,
-            (SELECT count(*) FROM access_events WHERE decision = 'authorized' AND DATE(detected_at) = CURRENT_DATE) AS authorized_today,
-            (SELECT count(*) FROM access_events WHERE decision = 'denied' AND DATE(detected_at) = CURRENT_DATE) AS denied_today
-        """
+            (SELECT count(*) FROM access_events WHERE controller_uid = ? AND DATE(detected_at) = CURRENT_DATE) AS events_today,
+            (SELECT count(*) FROM access_events WHERE controller_uid = ? AND decision = 'authorized' AND DATE(detected_at) = CURRENT_DATE) AS authorized_today,
+            (SELECT count(*) FROM access_events WHERE controller_uid = ? AND decision = 'denied' AND DATE(detected_at) = CURRENT_DATE) AS denied_today
+        """,
+        (scoped_uid, scoped_uid, scoped_uid),
     ).fetchone()
     recent_events = connection.execute(
         """
@@ -836,9 +1098,11 @@ def load_dashboard_state() -> dict[str, Any]:
                v.owner_name, v.vehicle_type, v.make, v.model
         FROM access_events e
         LEFT JOIN vehicles v ON v.id = e.vehicle_id
+        WHERE e.controller_uid = ?
         ORDER BY e.detected_at DESC
         LIMIT 8
-        """
+        """,
+        (scoped_uid,),
     ).fetchall()
     latest_event = connection.execute(
         """
@@ -849,9 +1113,11 @@ def load_dashboard_state() -> dict[str, Any]:
                v.owner_name
         FROM access_events e
         LEFT JOIN vehicles v ON v.id = e.vehicle_id
+        WHERE e.controller_uid = ?
         ORDER BY e.detected_at DESC
         LIMIT 1
-        """
+        """,
+        (scoped_uid,),
     ).fetchone()
     latest_has_image = bool(
         latest_event
@@ -865,24 +1131,38 @@ def load_dashboard_state() -> dict[str, Any]:
         """
         SELECT frames_ms, yolo_ms, ocr_ms, server_ms, total_ms
         FROM reader_commands
-        WHERE total_ms IS NOT NULL AND result_message LIKE 'Recognized %'
+        WHERE controller_uid = ? AND total_ms IS NOT NULL
+          AND result_message LIKE 'Recognized %'
         ORDER BY completed_at DESC, id DESC
         LIMIT 1
-        """
+        """,
+        (scoped_uid,),
     ).fetchone()
     if not latest_has_image:
         latest_timing = None
     daily = connection.execute(
         """
-        SELECT event_date, total_events, authorized_count, denied_count, gates_opened
-        FROM daily_access_summary
+        SELECT DATE_FORMAT(event_date, '%Y-%m-%d') AS event_date,
+               total_events, authorized_count, denied_count, gates_opened
+        FROM (
+            SELECT DATE(detected_at) AS event_date,
+                   COUNT(*) AS total_events,
+                   SUM(decision = 'authorized') AS authorized_count,
+                   SUM(decision = 'denied') AS denied_count,
+                   SUM(gate_action = 'opened') AS gates_opened
+            FROM access_events
+            WHERE controller_uid = ?
+            GROUP BY DATE(detected_at)
+        ) AS controller_days
         ORDER BY event_date DESC
         LIMIT 7
-        """
+        """,
+        (scoped_uid,),
     ).fetchall()
     system = connection.execute(
         """
-        SELECT id, controller_type, camera_state, detector_state, gate_state,
+        SELECT controller_uid, display_name, controller_type,
+               camera_state, detector_state, gate_state,
                camera_connected, loop_active, ir_blocked,
                barrier_open, traffic_green, plate_unrecognized,
                (controller_seen_at IS NOT NULL AND
@@ -892,9 +1172,31 @@ def load_dashboard_state() -> dict[str, Any]:
                DATE_FORMAT(controller_seen_at, '%Y-%m-%d %H:%i:%s') AS controller_seen_at,
                DATE_FORMAT(last_heartbeat, '%Y-%m-%d %H:%i:%s') AS last_heartbeat,
                DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
-        FROM system_status WHERE id = 1
-        """
+        FROM controllers WHERE controller_uid = ?
+        """,
+        (scoped_uid,),
     ).fetchone()
+    if system is None:
+        system = {
+            "controller_uid": None,
+            "display_name": "No controller connected",
+            "controller_type": "plate",
+            "camera_state": "unavailable",
+            "detector_state": "idle",
+            "gate_state": "offline",
+            "camera_connected": 0,
+            "loop_active": 0,
+            "ir_blocked": 0,
+            "barrier_open": 0,
+            "traffic_green": 0,
+            "plate_unrecognized": 0,
+            "controller_online": 0,
+            "last_plate": None,
+            "last_rfid": None,
+            "controller_seen_at": None,
+            "last_heartbeat": None,
+            "updated_at": None,
+        }
     return {
         "summary": summary,
         "recent_events": recent_events,
@@ -903,11 +1205,7 @@ def load_dashboard_state() -> dict[str, Any]:
         "latest_timing": latest_timing,
         "daily": daily,
         "system": system,
-        "latest_capture_version": (
-            LATEST_CAPTURE_PATH.stat().st_mtime_ns
-            if LATEST_CAPTURE_PATH.is_file()
-            else None
-        ),
+        "latest_capture_version": latest_event["id"] if latest_event else None,
     }
 
 
@@ -955,6 +1253,8 @@ def dashboard_sync():
         "recent_events": recent,
         "daily": [dict(row) for row in state["daily"]],
         "system": {
+            "controller_id": system["controller_uid"],
+            "controller_name": system["display_name"],
             "controller_type": system["controller_type"],
             "controller_online": bool(system["controller_online"]),
             "camera_running": bool(system["controller_online"] and system["camera_connected"]),
@@ -979,21 +1279,38 @@ def dashboard_sync():
 @role_required("administrator")
 def camera_capture():
     connection = get_db()
+    controller_uid = selected_controller_uid(connection)
+    controller = connection.execute(
+        """
+        SELECT controller_type, controller_seen_at IS NOT NULL AND
+               controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP) AS online
+        FROM controllers WHERE controller_uid = ?
+        """,
+        (controller_uid or "",),
+    ).fetchone()
+    if (
+        controller is None
+        or controller["controller_type"] != "plate"
+        or not controller["online"]
+    ):
+        return {"success": False, "message": "Select an online Plate + RFID controller first."}, 409
     connection.execute(
         """
         UPDATE reader_commands
         SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
             result_message = 'Command timed out before completion'
-        WHERE status IN ('pending', 'active')
+        WHERE controller_uid = ? AND status IN ('pending', 'active')
           AND COALESCE(started_at, created_at) < TIMESTAMPADD(MINUTE, -2, CURRENT_TIMESTAMP)
-        """
+        """,
+        (controller_uid,),
     )
     existing = connection.execute(
         """
         SELECT id, status FROM reader_commands
-        WHERE status IN ('pending', 'active')
+        WHERE controller_uid = ? AND status IN ('pending', 'active')
         ORDER BY created_at LIMIT 1
-        """
+        """,
+        (controller_uid,),
     ).fetchone()
     if existing is not None:
         connection.commit()
@@ -1002,17 +1319,18 @@ def camera_capture():
     else:
         cursor = connection.execute(
             """
-            INSERT INTO reader_commands (command_type, status, requested_by)
-            VALUES ('capture', 'pending', ?)
+            INSERT INTO reader_commands (controller_uid, command_type, status, requested_by)
+            VALUES (?, 'capture', 'pending', ?)
             """,
-            (session["user_id"],),
+            (controller_uid, session["user_id"]),
         )
         connection.execute(
             """
-            UPDATE system_status
+            UPDATE controllers
             SET detector_state = 'queued', updated_at = CURRENT_TIMESTAMP
-            WHERE id = 1
-            """
+            WHERE controller_uid = ?
+            """,
+            (controller_uid,),
         )
         record_audit("queue_capture", "reader_command", cursor.lastrowid, "Remote plate capture")
         connection.commit()
@@ -1037,18 +1355,25 @@ def hardware_command():
     if command not in labels:
         return {"success": False, "message": "Unsupported hardware command."}, 400
     connection = get_db()
+    controller_uid = selected_controller_uid(connection)
     controller = connection.execute(
         """
-        SELECT gate_state, controller_seen_at IS NOT NULL AND
+        SELECT controller_type, gate_state, controller_seen_at IS NOT NULL AND
                controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP)
                    AS online
-        FROM system_status WHERE id = 1
-        """
+        FROM controllers WHERE controller_uid = ?
+        """,
+        (controller_uid or "",),
     ).fetchone()
     if controller is None or not controller["online"]:
         return {
             "success": False,
             "message": "The Raspberry Pi controller is offline. No hardware command was queued.",
+        }, 409
+    if controller["controller_type"] != "plate":
+        return {
+            "success": False,
+            "message": "Manual relay commands are unavailable for an RFID-only controller.",
         }, 409
     if controller["gate_state"] == "disabled":
         return {
@@ -1060,16 +1385,18 @@ def hardware_command():
         UPDATE reader_commands
         SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
             result_message = 'Command timed out before completion'
-        WHERE status IN ('pending', 'active')
+        WHERE controller_uid = ? AND status IN ('pending', 'active')
           AND COALESCE(started_at, created_at) < TIMESTAMPADD(MINUTE, -2, CURRENT_TIMESTAMP)
-        """
+        """,
+        (controller_uid,),
     )
     existing = connection.execute(
         """
         SELECT id FROM reader_commands
-        WHERE status IN ('pending', 'active')
+        WHERE controller_uid = ? AND status IN ('pending', 'active')
         ORDER BY created_at LIMIT 1
-        """
+        """,
+        (controller_uid,),
     ).fetchone()
     if existing is not None:
         connection.commit()
@@ -1079,10 +1406,10 @@ def hardware_command():
         }, 409
     cursor = connection.execute(
         """
-        INSERT INTO reader_commands (command_type, status, requested_by)
-        VALUES (?, 'pending', ?)
+        INSERT INTO reader_commands (controller_uid, command_type, status, requested_by)
+        VALUES (?, ?, 'pending', ?)
         """,
-        (command, session["user_id"]),
+        (controller_uid, command, session["user_id"]),
     )
     record_audit(
         "queue_hardware_command",
@@ -1093,7 +1420,7 @@ def hardware_command():
     connection.commit()
     return {
         "success": True,
-        "message": f"{labels[command]} sent to the Raspberry Pi.",
+        "message": f"{labels[command]} sent to the selected controller.",
     }, 202
 
 
@@ -1135,36 +1462,41 @@ def hardware_serial():
         return {"success": False, "message": "Read timeout must be from 50 to 10000 ms."}, 400
 
     connection = get_db()
+    controller_uid = selected_controller_uid(connection)
     controller = connection.execute(
         """
-        SELECT gate_state, controller_seen_at IS NOT NULL AND
+        SELECT controller_type, gate_state, controller_seen_at IS NOT NULL AND
                controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP)
                    AS online
-        FROM system_status WHERE id = 1
-        """
+        FROM controllers WHERE controller_uid = ?
+        """,
+        (controller_uid or "",),
     ).fetchone()
     if controller is None or not controller["online"]:
         return {"success": False, "message": "The Raspberry Pi controller is offline."}, 409
+    if controller["controller_type"] != "plate":
+        return {"success": False, "message": "The serial console requires a Plate + RFID controller."}, 409
     if controller["gate_state"] == "disabled":
         return {"success": False, "message": "GPIO gate mode is disabled on the controller."}, 409
     existing = connection.execute(
         """
         SELECT id FROM reader_commands
-        WHERE status IN ('pending', 'active')
+        WHERE controller_uid = ? AND status IN ('pending', 'active')
         ORDER BY created_at LIMIT 1
-        """
+        """,
+        (controller_uid,),
     ).fetchone()
     if existing is not None:
         return {"success": False, "message": "Another controller command is already running."}, 409
     cursor = connection.execute(
         """
         INSERT INTO reader_commands (
-            command_type, status, requested_by, serial_tx_hex, serial_baud,
+            controller_uid, command_type, status, requested_by, serial_tx_hex, serial_baud,
             serial_data_bits, serial_parity, serial_stop_bits, serial_timeout_ms
-        ) VALUES ('rfid_serial', 'pending', ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, 'rfid_serial', 'pending', ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            session["user_id"], tx_hex, baud, data_bits,
+            controller_uid, session["user_id"], tx_hex, baud, data_bits,
             parity, stop_bits, timeout_ms,
         ),
     )
@@ -1177,7 +1509,7 @@ def hardware_serial():
     connection.commit()
     return {
         "success": True,
-        "message": "Serial command queued for the Raspberry Pi.",
+        "message": "Serial command queued for the selected controller.",
         "command_id": cursor.lastrowid,
         "tx_hex": tx_hex,
     }, 202
@@ -1186,14 +1518,15 @@ def hardware_serial():
 @app.get("/api/hardware/commands/<int:command_id>")
 @role_required("administrator")
 def hardware_command_result(command_id: int):
+    controller_uid = selected_controller_uid(get_db())
     command = get_db().execute(
         """
         SELECT id, command_type, status, result_message, response_data,
                DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
                DATE_FORMAT(completed_at, '%Y-%m-%d %H:%i:%s') AS completed_at
-        FROM reader_commands WHERE id = ? AND requested_by = ?
+        FROM reader_commands WHERE id = ? AND requested_by = ? AND controller_uid = ?
         """,
-        (command_id, session["user_id"]),
+        (command_id, session["user_id"], controller_uid),
     ).fetchone()
     if command is None:
         return {"error": "Command not found."}, 404
@@ -1206,6 +1539,12 @@ def vehicles():
     query = request.args.get("q", "").strip()
     if query:
         wildcard = f"%{query}%"
+        normalized_plate_query = normalize_plate(query)
+        plate_wildcard = (
+            f"%{normalized_plate_query}%"
+            if normalized_plate_query
+            else "__NO_PLATE_MATCH__"
+        )
         records = get_db().execute(
             """
             SELECT v.*,
@@ -1221,7 +1560,7 @@ def vehicles():
                )
             ORDER BY v.is_active DESC, v.plate_number
             """,
-            (wildcard, wildcard, wildcard, wildcard, wildcard),
+            (plate_wildcard, wildcard, wildcard, wildcard, wildcard),
         ).fetchall()
     else:
         records = get_db().execute(
@@ -1261,6 +1600,17 @@ def vehicle_form_values() -> dict[str, str]:
 @role_required("administrator")
 def vehicle_new():
     values: dict[str, Any] = {}
+    prefilled = False
+    if request.method == "GET":
+        plate_number = normalize_plate(request.args.get("plate_number", ""))
+        if plate_number in {"RFID", "UNREADABLE"}:
+            plate_number = ""
+        rfid_number = normalize_rfid(request.args.get("rfid_number", ""))
+        values = {
+            "plate_number": plate_number,
+            "rfid_number": rfid_number,
+        }
+        prefilled = bool(plate_number or rfid_number)
     if request.method == "POST":
         values = vehicle_form_values()
         if not values["plate_number"] or not values["owner_name"]:
@@ -1293,7 +1643,9 @@ def vehicle_new():
                 return redirect(url_for("vehicles"))
             except IntegrityError:
                 flash("That plate or RFID sticker is already registered or is invalid.", "error")
-    return render_template("vehicle_form.html", vehicle=values, editing=False)
+    return render_template(
+        "vehicle_form.html", vehicle=values, editing=False, prefilled=prefilled
+    )
 
 
 @app.route("/vehicles/<int:vehicle_id>/edit", methods=["GET", "POST"])
@@ -1369,7 +1721,28 @@ def vehicle_toggle(vehicle_id: int):
     )
     connection.commit()
     flash(f'{vehicle["plate_number"]} is now {"active" if new_state else "inactive"}.', "success")
-    return redirect(url_for("vehicles"))
+    return redirect(url_for("vehicles", q=request.form.get("return_query", "").strip()))
+
+
+@app.post("/vehicles/<int:vehicle_id>/delete")
+@role_required("administrator")
+def vehicle_delete(vehicle_id: int):
+    connection = get_db()
+    vehicle = connection.execute(
+        "SELECT plate_number, owner_name FROM vehicles WHERE id = ?", (vehicle_id,)
+    ).fetchone()
+    if vehicle is None:
+        abort(404)
+    record_audit(
+        "delete_vehicle",
+        "vehicle",
+        vehicle_id,
+        f'{vehicle["plate_number"]} / {vehicle["owner_name"]}',
+    )
+    connection.execute("DELETE FROM vehicles WHERE id = ?", (vehicle_id,))
+    connection.commit()
+    flash(f'{vehicle["plate_number"]} was permanently deleted.', "success")
+    return redirect(url_for("vehicles", q=request.form.get("return_query", "").strip()))
 
 
 @app.route("/users")
@@ -1446,8 +1819,9 @@ def user_toggle(user_id: int):
 
 
 def log_filters() -> tuple[list[str], list[Any]]:
-    clauses: list[str] = []
-    parameters: list[Any] = []
+    controller_uid = selected_controller_uid(get_db())
+    clauses: list[str] = ["e.controller_uid = ?"]
+    parameters: list[Any] = [controller_uid or "__no_controller__"]
     plate = normalize_plate(request.args.get("plate", ""))
     decision = request.args.get("decision", "").strip()
     date_from = request.args.get("date_from", "").strip()

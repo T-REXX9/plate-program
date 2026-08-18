@@ -55,6 +55,15 @@
         <div class="owner-block"><small>Registered owner</small><strong id="latest-owner">{{ latest_event.owner_name or 'Unregistered vehicle' if latest_event else '' }}</strong><span id="latest-rfid" class="rfid-value">RFID {{ (latest_event.rfid_number or 'not read') if latest_event else '' }}</span></div>
         <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
       </div>
+      {% if current_role == 'administrator' %}
+      <div id="denied-registration-actions" class="denied-registration-actions" {% if not latest_event or latest_event.decision != 'denied' or (not latest_event.rfid_number and latest_event.plate_number in ['RFID', 'UNREADABLE']) %}hidden{% endif %}>
+        <div><strong>Register denied credential</strong><span>Its detected value is already filled in for you.</span></div>
+        <div class="denied-registration-buttons">
+          <a id="register-denied-plate" class="secondary-button" href="{{ url_for('vehicle_new', plate_number=latest_event.plate_number, rfid_number=latest_event.rfid_number or '') if latest_event else '#' }}" {% if not latest_event or latest_event.decision != 'denied' or latest_event.plate_number in ['RFID', 'UNREADABLE'] %}hidden{% endif %}>＋ Register plate</a>
+          <a id="register-denied-rfid" class="primary-button" href="{{ url_for('vehicle_new', plate_number='' if not latest_event or latest_event.plate_number in ['RFID', 'UNREADABLE'] else latest_event.plate_number, rfid_number=latest_event.rfid_number or '') if latest_event else '#' }}" {% if not latest_event or latest_event.decision != 'denied' or not latest_event.rfid_number %}hidden{% endif %}>＋ Register RFID</a>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </section>
 

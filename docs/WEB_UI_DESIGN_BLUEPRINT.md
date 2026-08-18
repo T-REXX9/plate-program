@@ -370,7 +370,7 @@ Seven signals are required:
 
 | Signal | Normal labels/states |
 |---|---|
-| Server link | Connected / Offline |
+| Controller link | Connected / Offline |
 | Camera | Detected / Unavailable |
 | Loop detector | Vehicle present / Clear / Unknown |
 | IR safety beam | Blocked / Clear / Unknown |
