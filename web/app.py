@@ -120,6 +120,7 @@ def initialize_database() -> None:
         for table, column, definition in (
             ("access_events", "controller_uid", "VARCHAR(64) NULL AFTER id"),
             ("reader_commands", "controller_uid", "VARCHAR(64) NULL AFTER id"),
+            ("controllers", "rfid_connected", "TINYINT(1) NOT NULL DEFAULT 0 AFTER camera_connected"),
         ):
             present = connection.execute(
                 """
@@ -169,17 +170,18 @@ def initialize_database() -> None:
                     INSERT INTO controllers (
                         controller_uid, display_name, controller_type,
                         camera_state, detector_state, gate_state,
-                        camera_connected, loop_active, ir_blocked, barrier_open,
+                        camera_connected, rfid_connected, loop_active, ir_blocked, barrier_open,
                         traffic_green, plate_unrecognized, last_plate, last_rfid,
                         controller_seen_at, last_heartbeat
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         legacy_uid,
                         "Legacy RFID Controller" if controller_type == "rfid" else "Legacy Plate + RFID Controller",
                         controller_type,
                         legacy["camera_state"], legacy["detector_state"], legacy["gate_state"],
-                        legacy["camera_connected"], legacy["loop_active"], legacy["ir_blocked"],
+                        legacy["camera_connected"], legacy.get("rfid_connected", controller_type == "rfid"),
+                        legacy["loop_active"], legacy["ir_blocked"],
                         legacy["barrier_open"], legacy["traffic_green"],
                         legacy["plate_unrecognized"], legacy["last_plate"], legacy["last_rfid"],
                         legacy["controller_seen_at"], legacy["last_heartbeat"],
@@ -507,6 +509,7 @@ def rfid_controller_status():
         UPDATE controllers
         SET camera_state = 'unavailable',
             detector_state = 'idle', gate_state = ?, camera_connected = 0,
+            rfid_connected = ?,
             loop_active = ?, ir_blocked = ?, barrier_open = ?,
             traffic_green = ?, plate_unrecognized = ?,
             controller_seen_at = CURRENT_TIMESTAMP,
@@ -516,6 +519,7 @@ def rfid_controller_status():
         """,
         (
             gate_state,
+            reader_form_boolean("rfid_connected") if "rfid_connected" in request.form else True,
             reader_form_boolean("loop_active"),
             reader_form_boolean("ir_blocked"),
             reader_form_boolean("barrier_open"),
@@ -646,7 +650,7 @@ def reader_status():
         """
         UPDATE controllers
         SET camera_state = ?, detector_state = ?, gate_state = ?,
-            camera_connected = ?, loop_active = ?, ir_blocked = ?,
+            camera_connected = ?, rfid_connected = ?, loop_active = ?, ir_blocked = ?,
             barrier_open = ?, traffic_green = ?, plate_unrecognized = ?,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
@@ -658,6 +662,7 @@ def reader_status():
             detector_state,
             gate_state,
             camera_connected,
+            reader_form_boolean("rfid_connected"),
             reader_form_boolean("loop_active"),
             reader_form_boolean("ir_blocked"),
             reader_form_boolean("barrier_open"),
@@ -1163,7 +1168,7 @@ def load_dashboard_state() -> dict[str, Any]:
         """
         SELECT controller_uid, display_name, controller_type,
                camera_state, detector_state, gate_state,
-               camera_connected, loop_active, ir_blocked,
+               camera_connected, rfid_connected, loop_active, ir_blocked,
                barrier_open, traffic_green, plate_unrecognized,
                (controller_seen_at IS NOT NULL AND
                 controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP))
@@ -1185,6 +1190,7 @@ def load_dashboard_state() -> dict[str, Any]:
             "detector_state": "idle",
             "gate_state": "offline",
             "camera_connected": 0,
+            "rfid_connected": 0,
             "loop_active": 0,
             "ir_blocked": 0,
             "barrier_open": 0,
@@ -1258,6 +1264,7 @@ def dashboard_sync():
             "controller_type": system["controller_type"],
             "controller_online": bool(system["controller_online"]),
             "camera_running": bool(system["controller_online"] and system["camera_connected"]),
+            "rfid_connected": bool(system["controller_online"] and system["rfid_connected"]),
             "camera_state": system["camera_state"],
             "detector_state": system["detector_state"],
             "gate_state": system["gate_state"],

@@ -1,4 +1,40 @@
 <!doctype html>
+{% macro controller_switcher(controllers, selected_controller, selected_controller_uid, current_role, mobile=false) -%}
+<div class="controller-switcher{% if mobile %} mobile-controller-picker{% endif %}" data-csrf-token="{{ csrf_token() }}">
+  <div class="controller-picker">
+    <button class="controller-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" {% if not controllers %}disabled{% endif %}>
+      <span class="controller-live-dot {{ 'online' if selected_controller and selected_controller.controller_online else 'offline' }}" aria-hidden="true"></span>
+      <span class="controller-trigger-copy">
+        <strong class="controller-current-name">{{ selected_controller.display_name if selected_controller else 'No controllers connected' }}</strong>
+        <small class="controller-meta">{% if selected_controller %}<span class="controller-type">{{ 'RFID only' if selected_controller.controller_type == 'rfid' else 'Plate + RFID' }}</span> · <span class="controller-id">{{ selected_controller.controller_uid }}</span>{% else %}Waiting for a controller{% endif %}</small>
+      </span>
+      <span class="controller-chevron" aria-hidden="true"></span>
+    </button>
+    <div class="controller-menu" role="listbox" aria-label="Gate controllers" hidden>
+      <div class="controller-menu-heading">Switch controller</div>
+      <div class="controller-options">
+        {% for controller in controllers %}
+        <button class="controller-option" type="button" role="option" data-controller-uid="{{ controller.controller_uid }}" aria-selected="{{ 'true' if controller.controller_uid == selected_controller_uid else 'false' }}">
+          <span class="controller-option-dot {{ 'online' if controller.controller_online else 'offline' }}" aria-hidden="true"></span>
+          <span class="controller-option-copy">
+            <strong>{{ controller.display_name }}</strong>
+            <small>{{ 'RFID only' if controller.controller_type == 'rfid' else 'Plate + RFID' }} · {{ controller.controller_uid }}</small>
+          </span>
+          <span class="controller-option-state">{{ 'Online' if controller.controller_online else 'Offline' }}</span>
+          <span class="controller-check" aria-hidden="true">✓</span>
+        </button>
+        {% else %}
+        <div class="controller-empty">No controllers have checked in yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+    <select class="controller-select" aria-label="Active gate controller" tabindex="-1" aria-hidden="true" {% if not controllers %}disabled{% endif %}>
+      {% for controller in controllers %}<option value="{{ controller.controller_uid }}" {{ 'selected' if controller.controller_uid == selected_controller_uid else '' }}>{{ controller.display_name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% if current_role == 'administrator' %}<button class="controller-rename" type="button" title="Rename selected controller" aria-label="Rename selected controller" {{ 'disabled' if not selected_controller else '' }}>✎</button>{% endif %}
+</div>
+{%- endmacro %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -45,20 +81,7 @@
       <span class="topbar-context">Gate operations console</span>
     </div>
     <div class="topbar-user">
-      <div class="controller-switcher" data-csrf-token="{{ csrf_token() }}">
-        <span class="controller-live-dot {{ 'online' if selected_controller and selected_controller.controller_online else 'offline' }}" aria-hidden="true"></span>
-        <div class="controller-select-copy">
-          <select class="controller-select" aria-label="Active gate controller" {% if not controllers %}disabled{% endif %}>
-            {% for controller in controllers %}
-            <option value="{{ controller.controller_uid }}" {{ 'selected' if controller.controller_uid == selected_controller_uid else '' }}>{{ '●' if controller.controller_online else '○' }} {{ controller.display_name }}</option>
-            {% else %}
-            <option>No controllers connected</option>
-            {% endfor %}
-          </select>
-          <small class="controller-meta">{% if selected_controller %}<span class="controller-type">{{ 'RFID only' if selected_controller.controller_type == 'rfid' else 'Plate + RFID' }}</span> · <span class="controller-id">{{ selected_controller.controller_uid }}</span>{% else %}Waiting for a controller{% endif %}</small>
-        </div>
-        {% if current_role == 'administrator' %}<button class="controller-rename" type="button" title="Rename selected controller" aria-label="Rename selected controller" {{ 'disabled' if not selected_controller else '' }}>✎</button>{% endif %}
-      </div>
+      {{ controller_switcher(controllers, selected_controller, selected_controller_uid, current_role) }}
       <span class="topbar-role">{{ 'Guard view' if current_role == 'viewer' else 'Administrator' }}</span>
       <span class="account-avatar" aria-hidden="true">{{ current_user[:1] | upper }}</span>
     </div>
@@ -66,16 +89,7 @@
 
   <header class="mobile-header">
     <a href="{{ url_for('dashboard') }}"><span class="brand-shield" aria-hidden="true">G</span><strong>Plate Program</strong></a>
-    <div class="mobile-controller-picker controller-switcher" data-csrf-token="{{ csrf_token() }}">
-      <span class="controller-live-dot {{ 'online' if selected_controller and selected_controller.controller_online else 'offline' }}" aria-hidden="true"></span>
-      <div class="controller-select-copy">
-        <select class="controller-select" aria-label="Active gate controller" {% if not controllers %}disabled{% endif %}>
-          {% for controller in controllers %}<option value="{{ controller.controller_uid }}" {{ 'selected' if controller.controller_uid == selected_controller_uid else '' }}>{{ '●' if controller.controller_online else '○' }} {{ controller.display_name }}</option>{% else %}<option>No controllers</option>{% endfor %}
-        </select>
-        <small class="controller-meta">{% if selected_controller %}<span class="controller-type">{{ 'RFID only' if selected_controller.controller_type == 'rfid' else 'Plate + RFID' }}</span> · <span class="controller-id">{{ selected_controller.controller_uid }}</span>{% else %}Waiting for controller{% endif %}</small>
-      </div>
-      {% if current_role == 'administrator' %}<button class="controller-rename" type="button" title="Rename selected controller" aria-label="Rename selected controller" {{ 'disabled' if not selected_controller else '' }}>✎</button>{% endif %}
-    </div>
+    {{ controller_switcher(controllers, selected_controller, selected_controller_uid, current_role, true) }}
   </header>
   {% endif %}
 

@@ -36,14 +36,15 @@
     const rfidOnly = system.controller_type === "rfid";
     const moving = ["opening", "closing", "fault"].includes(system.gate_state);
     signal("controller-lamp", "controller-state", online ? "green" : "red", online ? "Connected" : "Offline");
-    text("reader-status-icon", rfidOnly ? "◎" : "◉");
-    text("reader-status-label", rfidOnly ? "RFID reader" : "Camera");
+    const cameraSignal = byId("camera-signal");
+    if (cameraSignal) cameraSignal.hidden = rfidOnly;
     signal(
       "camera-lamp",
       "camera-state",
-      rfidOnly ? (online ? "green" : "red") : (online && system.camera_running ? "green" : "red"),
-      rfidOnly ? (online ? "Active" : "Offline") : (online && system.camera_running ? "Detected" : "Unavailable"),
+      online ? (system.camera_running ? "green" : "red") : "off",
+      online ? (system.camera_running ? "Detected" : "Unavailable") : "Unknown",
     );
+    signal("rfid-lamp", "rfid-state", online ? (system.rfid_connected ? "green" : "red") : "off", online ? (system.rfid_connected ? "Connected" : "Unavailable") : "Unknown");
     signal("loop-lamp", "loop-state", online ? (system.loop_active ? "green" : "red") : "off", online ? (system.loop_active ? "Vehicle present" : "Clear") : "Unknown");
     signal("ir-lamp", "ir-state", online ? (system.ir_blocked ? "red" : "green") : "off", online ? (system.ir_blocked ? "Blocked" : "Clear") : "Unknown");
     signal("barrier-lamp", "barrier-state", online ? (moving ? "amber" : (system.barrier_open ? "green" : "red")) : "off", online ? titleCase(system.gate_state) : "Unknown");
