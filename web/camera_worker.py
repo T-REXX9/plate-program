@@ -76,7 +76,8 @@ def claim_job(connection: DatabaseConnection) -> dict | None:
         UPDATE access_events e
         JOIN camera_capture_jobs j ON j.attempt_uid COLLATE utf8mb4_unicode_ci =
             e.attempt_uid COLLATE utf8mb4_unicode_ci
-        SET e.notes = CONCAT_WS('; ', e.notes, 'camera_timeout')
+        SET e.decision = 'denied', e.gate_action = 'kept_closed',
+            e.notes = CONCAT_WS('; ', e.notes, 'camera_timeout')
         WHERE j.status = 'timed_out' AND e.decision = 'unreadable'
         """
     )
@@ -119,8 +120,25 @@ def fail_job(connection: DatabaseConnection, job: dict, message: str) -> None:
         (message[:500], job["id"]),
     )
     connection.execute(
-        "UPDATE cameras SET status = 'degraded', last_seen_at = CURRENT_TIMESTAMP, last_error = ? WHERE camera_uid = ?",
+        """
+        UPDATE cameras
+        SET status = 'degraded', last_seen_at = CURRENT_TIMESTAMP, last_error = ?
+        WHERE camera_uid = ?
+        """,
         (message[:500], job["camera_uid"]),
+    )
+    connection.execute(
+        """
+        UPDATE access_events
+        SET decision = 'denied', gate_action = 'kept_closed',
+            notes = CONCAT_WS('; ', notes, 'camera_failed')
+        WHERE village_id = ? AND gate_id = ? AND controller_uid = ?
+          AND attempt_uid = ? AND decision = 'unreadable'
+        """,
+        (
+            job["village_id"], job["gate_id"], job["controller_uid"],
+            job["attempt_uid"],
+        ),
     )
     connection.commit()
 
