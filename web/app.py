@@ -2950,6 +2950,8 @@ def load_dashboard_state() -> dict[str, Any]:
         "daily": daily,
         "system": system,
         "latest_capture_version": latest_event["id"] if latest_event else None,
+        "camera_test_uid": session.get("camera_test_uid"),
+        "camera_test_version": session.get("camera_test_version"),
     }
 
 

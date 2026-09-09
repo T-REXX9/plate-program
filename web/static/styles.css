@@ -141,6 +141,8 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 
 .dashboard-flow { display: grid; grid-template-columns: minmax(0, 2.05fr) minmax(300px, .95fr); grid-template-areas: "capture capture" "metrics metrics" "event system" "event activity" "recent recent"; gap: 18px; align-items: start; }
 .dashboard-capture-action { grid-area: capture; display: flex; justify-content: flex-end; }
+.camera-test-result { display: grid; gap: 6px; width: min(360px, 100%); margin-left: 14px; color: var(--muted); font-size: 11px; }
+.camera-test-result img { display: block; width: 100%; max-height: 180px; object-fit: contain; border-radius: 8px; background: var(--inverse); }
 .metric-grid { grid-area: metrics; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
 .metric-card { position: relative; min-height: 138px; display: flex; flex-direction: column; justify-content: center; padding: 21px 24px; overflow: hidden; }
 .metric-card > span { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
@@ -358,7 +360,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
   .page-heading h1 { font-size: 25px; }
   .page-heading > div:first-child > p:not(.eyebrow) { display: none; }
   .dashboard-flow { display: grid; grid-template-columns: 1fr; grid-template-areas: "system" "event" "capture" "metrics" "activity" "recent"; gap: 14px; }
-  .dashboard-capture-action, .dashboard-capture-action form, .dashboard-capture-action .capture-button { width: 100%; }
+  .dashboard-capture-action, .dashboard-capture-action form, .dashboard-capture-action .capture-button, .camera-test-result { width: 100%; }
+  .camera-test-result { margin: 14px 0 0; }
   .dashboard-capture-action .capture-button { min-height: 52px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .metric-card { min-height: 112px; padding: 15px; }
