@@ -770,6 +770,52 @@ def request_attempt_uid() -> str | None:
     return value
 
 
+def find_recent_access_event(
+    connection: DatabaseConnection,
+    village_id: int,
+    gate_id: int,
+    controller_uid: str,
+    attempt_uid: str | None,
+    rfid_number: str | None = None,
+) -> Any:
+    """Find the current gate attempt without crossing tenant or gate boundaries."""
+    if attempt_uid:
+        event = connection.execute(
+            """
+            SELECT id FROM access_events
+            WHERE village_id = ? AND gate_id = ? AND controller_uid = ?
+              AND attempt_uid = ?
+            LIMIT 1
+            """,
+            (village_id, gate_id, controller_uid, attempt_uid),
+        ).fetchone()
+        if event is not None:
+            return event
+    if rfid_number:
+        return connection.execute(
+            """
+            SELECT id FROM access_events
+            WHERE village_id = ? AND gate_id = ? AND controller_uid = ?
+              AND rfid_number = ?
+              AND detected_at >= TIMESTAMPADD(SECOND, -10, CURRENT_TIMESTAMP)
+            ORDER BY detected_at DESC, id DESC
+            LIMIT 1
+            """,
+            (village_id, gate_id, controller_uid, rfid_number),
+        ).fetchone()
+    return connection.execute(
+        """
+        SELECT id FROM access_events
+        WHERE village_id = ? AND gate_id = ? AND controller_uid = ?
+          AND decision = 'unreadable'
+          AND detected_at >= TIMESTAMPADD(SECOND, -10, CURRENT_TIMESTAMP)
+        ORDER BY detected_at DESC, id DESC
+        LIMIT 1
+        """,
+        (village_id, gate_id, controller_uid),
+    ).fetchone()
+
+
 def default_controller_name(controller_uid: str, controller_type: str) -> str:
     label = "RFID Controller" if controller_type == "rfid" else "Plate + RFID Controller"
     suffix = controller_uid[-8:] if len(controller_uid) > 8 else controller_uid
@@ -1595,15 +1641,10 @@ def rfid_controller_recognition():
     plate = vehicle["plate_number"] if vehicle else "RFID"
     reason = "rfid_authorized" if authorized else "rfid_not_registered_or_expired"
 
-    correlated = connection.execute(
-        """
-        SELECT id, authorized, decision, gate_action
-        FROM access_events
-        WHERE village_id = ? AND controller_uid = ? AND attempt_uid = ?
-        LIMIT 1
-        """,
-        (controller["village_id"], controller_uid, attempt_uid),
-    ).fetchone() if attempt_uid else None
+    correlated = find_recent_access_event(
+        connection, controller["village_id"], controller["gate_id"],
+        controller_uid, attempt_uid, rfid_number,
+    )
     duplicate = connection.execute(
         """
         SELECT id FROM access_events
@@ -2367,14 +2408,10 @@ def reader_recognition():
     authorized_vehicle = vehicle or rfid_vehicle
     decision = "authorized" if authorized else "denied"
 
-    correlated = connection.execute(
-        """
-        SELECT id FROM access_events
-        WHERE village_id = ? AND controller_uid = ? AND attempt_uid = ?
-        LIMIT 1
-        """,
-        (controller["village_id"], controller_uid, attempt_uid),
-    ).fetchone() if attempt_uid else None
+    correlated = find_recent_access_event(
+        connection, controller["village_id"], controller["gate_id"],
+        controller_uid, attempt_uid, rfid_number,
+    )
     duplicate = None if is_no_plate_capture else connection.execute(
         """
         SELECT id FROM access_events
