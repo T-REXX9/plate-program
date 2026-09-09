@@ -353,16 +353,20 @@ The page updates automatically every 2 seconds while visible. It must not perfor
 
 ### B. Administrator capture action
 
-Only administrators see `Capture plate`.
+Authorized village users see `Capture frame` when the selected village has a
+configured gate camera. The action is executed by the central server and does
+not require a controller heartbeat.
 
 States:
 
-- Ready: `Capture plate`.
-- Queued/processing: disabled, `Capturing…`.
-- Already busy: notification explaining that capture is queued or active.
+- Ready: `Capture frame`.
+- Camera not configured: disabled, `Camera not configured`.
+- Capture in progress: disabled while the server performs the capture.
 - Request failed: error notification.
 
-This action is useful only for the camera controller. The design should disable or hide it when the active controller is RFID-only or unavailable.
+The result should update camera health and show the captured frame or a useful
+failure reason. Controller availability is displayed separately from camera
+availability.
 
 ### C. Live gate indicators
 
@@ -378,7 +382,9 @@ Seven signals are required:
 | Traffic signal | STOP / GO / Unknown |
 | Access result | Ready / Not recognized / Unknown |
 
-For an RFID-only controller, `Camera: Unavailable` is correct and should not make the entire system look broken.
+Camera availability is determined by the bound camera and central server,
+not by controller heartbeat. A controller may be offline while its configured
+camera remains testable.
 
 ### D. Seven-day activity
 
@@ -712,7 +718,9 @@ Use event cards with the decision, plate, owner, and timestamp at the top. Secon
 
 - Uses the same dashboard endpoint.
 - Frequency: every 1 second.
-- Enable manual controls only when the controller is online, is the camera plate controller, and gate mode is not disabled.
+- Enable camera capture when the selected gate has a configured camera;
+  enable physical relay controls only when the controller is online and the
+  gate mode is not disabled.
 
 ### Recognition progression
 
@@ -951,7 +959,8 @@ The redesigned UI is acceptable when:
 - Mobile pages have no horizontal page scrolling.
 - Critical mobile information appears before historical analytics.
 - Guard users cannot see or trigger administrator actions.
-- Camera-specific controls are unavailable for an RFID-only controller.
+- Server-side camera capture remains available independently of controller
+  type and heartbeat when a camera is bound to the selected gate.
 - Every physical action requires the appropriate safety confirmation.
 - Existing backend field names, routes, CSRF protection, and role checks continue working.
 - Empty, offline, reconnecting, fault, and long-content states are fully designed.
