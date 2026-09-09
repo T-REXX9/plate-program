@@ -210,10 +210,9 @@
   function updateCaptureButton(system) {
     const button = byId("camera-capture-button");
     if (!button) return;
-    const busy = ["queued", "active"].includes(system.detector_state);
-    const unavailable = system.controller_type === "rfid" || !system.controller_online;
-    button.disabled = busy || unavailable;
-    button.textContent = busy ? "Capturing…" : (unavailable ? "Camera unavailable" : "Capture plate");
+    const unavailable = !system.camera_configured;
+    button.disabled = unavailable;
+    button.textContent = unavailable ? "Camera not configured" : "Capture frame";
   }
 
   function updateRecent(events) {

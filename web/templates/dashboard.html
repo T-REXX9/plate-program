@@ -28,8 +28,8 @@
   <div class="dashboard-capture-action">
     <form id="camera-capture-form" method="post" action="{{ url_for('camera_capture') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button id="camera-capture-button" class="primary-button capture-button" type="submit" {{ 'disabled' if system.detector_state in ['queued', 'active'] or system.controller_type == 'rfid' or not system.controller_online else '' }}>
-        <span aria-hidden="true">◉</span>{{ 'Capturing…' if system.detector_state in ['queued', 'active'] else 'Capture plate' }}
+      <button id="camera-capture-button" class="primary-button capture-button" type="submit" {{ 'disabled' if not system.camera_configured else '' }}>
+        <span aria-hidden="true">◉</span>{{ 'Capture frame' if system.camera_configured else 'Camera not configured' }}
       </button>
     </form>
   </div>

@@ -2845,6 +2845,21 @@ def load_dashboard_state() -> dict[str, Any]:
         (scoped_uid,),
     ).fetchone()
     if system is None:
+        camera = connection.execute(
+            """
+            SELECT cameras.camera_uid, cameras.transport, cameras.status,
+                   cameras.endpoint_url IS NOT NULL AS camera_configured,
+                   DATE_FORMAT(cameras.last_seen_at, '%Y-%m-%d %H:%i:%s') AS camera_last_seen_at,
+                   cameras.last_error AS camera_last_error
+            FROM cameras
+            JOIN gates ON gates.id = cameras.gate_id
+            WHERE cameras.is_active = 1 AND gates.is_active = 1
+              AND gates.village_id = ?
+            ORDER BY cameras.gate_id
+            LIMIT 1
+            """,
+            (village_id or 0,),
+        ).fetchone()
         system = {
             "controller_uid": None,
             "display_name": "No controller connected",
@@ -2865,12 +2880,12 @@ def load_dashboard_state() -> dict[str, Any]:
             "controller_seen_at": None,
             "last_heartbeat": None,
             "updated_at": None,
-            "camera_uid": None,
-            "camera_transport": None,
-            "camera_status": "unknown",
-            "camera_configured": 0,
-            "camera_last_seen_at": None,
-            "camera_last_error": None,
+            "camera_uid": camera["camera_uid"] if camera else None,
+            "camera_transport": camera["transport"] if camera else None,
+            "camera_status": camera["status"] if camera else "unknown",
+            "camera_configured": camera["camera_configured"] if camera else 0,
+            "camera_last_seen_at": camera["camera_last_seen_at"] if camera else None,
+            "camera_last_error": camera["camera_last_error"] if camera else None,
         }
     return {
         "network_summary": network_summary,
@@ -2962,68 +2977,64 @@ def dashboard_sync():
 def camera_capture():
     connection = get_db()
     controller_uid = selected_controller_uid(connection)
-    controller = connection.execute(
+    village_id = selected_village_id(connection)
+    camera = connection.execute(
         """
-        SELECT controller_type, controller_seen_at IS NOT NULL AND
-               controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP) AS online
-        FROM controllers WHERE controller_uid = ?
+        SELECT cameras.camera_uid, cameras.transport, cameras.endpoint_url
+        FROM cameras
+        JOIN gates ON gates.id = cameras.gate_id
+        WHERE cameras.is_active = 1 AND gates.is_active = 1
+          AND gates.village_id = ?
+          AND (? IS NULL OR cameras.gate_id = (
+              SELECT gate_id FROM controllers WHERE controller_uid = ?
+          ))
+        ORDER BY cameras.gate_id
+        LIMIT 1
         """,
-        (controller_uid or "",),
+        (village_id or 0, controller_uid, controller_uid),
     ).fetchone()
-    if (
-        controller is None
-        or controller["controller_type"] != "plate"
-        or not controller["online"]
-    ):
-        return {"success": False, "message": "Select an online Plate + RFID controller first."}, 409
-    connection.execute(
-        """
-        UPDATE reader_commands
-        SET status = 'failed', completed_at = CURRENT_TIMESTAMP,
-            result_message = 'Command timed out before completion'
-        WHERE controller_uid = ? AND status IN ('pending', 'active')
-          AND COALESCE(started_at, created_at) < TIMESTAMPADD(MINUTE, -2, CURRENT_TIMESTAMP)
-        """,
-        (controller_uid,),
-    )
-    existing = connection.execute(
-        """
-        SELECT id, status FROM reader_commands
-        WHERE controller_uid = ? AND status IN ('pending', 'active')
-        ORDER BY created_at LIMIT 1
-        """,
-        (controller_uid,),
-    ).fetchone()
-    if existing is not None:
-        connection.commit()
-        success = False
-        message = "A plate capture is already queued or running."
-    else:
-        cursor = connection.execute(
-            """
-            INSERT INTO reader_commands (
-                village_id, gate_id, controller_uid, command_type, status, requested_by
-            )
-            SELECT g.village_id, c.gate_id, c.controller_uid, 'capture', 'pending', ?
-            FROM controllers c JOIN gates g ON g.id = c.gate_id
-            WHERE c.controller_uid = ?
-            """,
-            (session["user_id"], controller_uid),
+    if camera is None:
+        return {"success": False, "message": "Bind a camera to a gate before capturing a frame."}, 409
+    endpoint_url = camera["endpoint_url"] or os.environ.get(
+        camera_endpoint_env_name(camera["camera_uid"]), ""
+    ).strip() or None
+    try:
+        frame = capture_frame(
+            CameraConfig(camera["camera_uid"], camera["transport"], endpoint_url),
+            timeout_seconds=10,
         )
+        store_event_image("camera-tests", f"{camera['camera_uid']}.jpg", frame)
         connection.execute(
             """
-            UPDATE controllers
-            SET detector_state = 'queued', updated_at = CURRENT_TIMESTAMP
-            WHERE controller_uid = ?
+            UPDATE cameras
+            SET status = 'online', last_seen_at = CURRENT_TIMESTAMP, last_error = NULL
+            WHERE camera_uid = ?
             """,
-            (controller_uid,),
+            (camera["camera_uid"],),
         )
-        record_audit("queue_capture", "reader_command", cursor.lastrowid, "Remote plate capture")
         connection.commit()
+        session["camera_test_uid"] = camera["camera_uid"]
+        session["camera_test_version"] = int(datetime.now().timestamp())
         success = True
-        message = "Plate capture queued for the gate equipment."
+        message = "Camera frame captured successfully."
+    except (CameraError, ValueError) as error:
+        connection.execute(
+            """
+            UPDATE cameras
+            SET status = 'degraded', last_seen_at = CURRENT_TIMESTAMP, last_error = ?
+            WHERE camera_uid = ?
+            """,
+            (str(error)[:500], camera["camera_uid"]),
+        )
+        connection.commit()
+        success = False
+        message = f"Camera capture failed: {error}"
     if request.accept_mimetypes.best == "application/json":
-        return {"success": success, "message": message}, 202 if success else 409
+        return {
+            "success": success,
+            "message": message,
+            "camera_id": camera["camera_uid"],
+        }, 200 if success else 502
     flash(message, "success" if success else "error")
     return redirect(url_for("dashboard"))
 
