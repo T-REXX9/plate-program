@@ -40,6 +40,7 @@ from camera import (
     CameraConfig,
     CameraError,
     camera_endpoint_env_name,
+    camera_is_configured,
     capture_frame,
     validate_camera_config,
     validate_camera_uid,
@@ -1052,12 +1053,19 @@ def sites():
         SELECT g.*, v.name AS village_name,
                (SELECT COUNT(*) FROM controllers c WHERE c.gate_id = g.id) AS controller_count,
                cam.camera_uid, cam.display_name AS camera_name, cam.transport AS camera_transport,
-               cam.status AS camera_status, cam.endpoint_url IS NOT NULL AS camera_configured
+               cam.status AS camera_status, cam.endpoint_url AS camera_endpoint_url,
+               cam.endpoint_url IS NOT NULL AS camera_configured
         FROM gates g JOIN villages v ON v.id = g.village_id
         LEFT JOIN cameras cam ON cam.gate_id = g.id
         ORDER BY v.name, g.name
         """
     ).fetchall()
+    gates = [
+        dict(gate, camera_configured=camera_is_configured(
+            gate["camera_uid"], gate["camera_endpoint_url"]
+        ))
+        for gate in gates
+    ]
     controllers = controller_records(connection)
     unassigned_controllers = connection.execute(
         """
@@ -2881,6 +2889,10 @@ def load_dashboard_state() -> dict[str, Any]:
         """,
         (scoped_uid,),
     ).fetchone()
+    if system is not None:
+        system["camera_configured"] = camera_is_configured(
+            system["camera_uid"], system["camera_endpoint_url"]
+        )
     if system is None:
         camera = connection.execute(
             """

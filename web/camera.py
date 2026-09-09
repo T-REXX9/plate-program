@@ -36,6 +36,15 @@ def camera_endpoint_env_name(camera_uid: str) -> str:
     return f"CAMERA_ENDPOINT_{normalized}"
 
 
+def camera_is_configured(camera_uid: str | None, endpoint_url: str | None) -> bool:
+    """Return whether a camera has an endpoint without exposing deployment secrets."""
+    if (endpoint_url or "").strip():
+        return True
+    if not camera_uid:
+        return False
+    return bool(os.environ.get(camera_endpoint_env_name(camera_uid), "").strip())
+
+
 def validate_camera_uid(value: str) -> str:
     candidate = (value or "").strip()
     if not candidate or len(candidate) > 64:

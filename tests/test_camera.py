@@ -13,12 +13,26 @@ from camera import (  # noqa: E402
     CameraError,
     capture_frame,
     camera_endpoint_env_name,
+    camera_is_configured,
     validate_camera_config,
     validate_camera_uid,
 )
 
 
 class CameraConfigTests(unittest.TestCase):
+    @patch.dict("camera.os.environ", {}, clear=True)
+    def test_environment_endpoint_counts_as_configured(self) -> None:
+        with patch.dict(
+            "camera.os.environ",
+            {"CAMERA_ENDPOINT_GATE_1_CAMERA": "rtsp://camera/stream1"},
+            clear=True,
+        ):
+            self.assertTrue(camera_is_configured("gate-1-camera", None))
+
+    @patch.dict("camera.os.environ", {}, clear=True)
+    def test_missing_endpoint_is_not_configured(self) -> None:
+        self.assertFalse(camera_is_configured("gate-1-camera", None))
+
     def test_camera_endpoint_env_name_is_stable(self) -> None:
         self.assertEqual(
             camera_endpoint_env_name("village-a:main-camera"),
