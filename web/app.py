@@ -2820,7 +2820,7 @@ def load_dashboard_state() -> dict[str, Any]:
     ).fetchall()
     system = connection.execute(
         """
-        SELECT controller_uid, display_name, controller_type,
+        SELECT controllers.controller_uid, controllers.display_name, controller_type,
                camera_state, detector_state, gate_state,
                camera_connected, rfid_connected, loop_active, ir_blocked,
                barrier_open, traffic_green, plate_unrecognized,
