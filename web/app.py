@@ -1225,7 +1225,11 @@ def camera_test(gate_id: int):
             CameraConfig(camera["camera_uid"], camera["transport"], endpoint_url),
             timeout_seconds=10,
         )
-        store_event_image("camera-tests", f"{camera['camera_uid']}.jpg", frame)
+        stored_path = store_event_image(
+            "camera-tests", f"{camera['camera_uid']}.jpg", frame
+        )
+        if stored_path is None:
+            raise CameraError("The captured frame could not be stored.")
         connection.execute(
             """
             UPDATE cameras
@@ -3052,7 +3056,11 @@ def camera_capture():
             CameraConfig(camera["camera_uid"], camera["transport"], endpoint_url),
             timeout_seconds=10,
         )
-        store_event_image("camera-tests", f"{camera['camera_uid']}.jpg", frame)
+        stored_path = store_event_image(
+            "camera-tests", f"{camera['camera_uid']}.jpg", frame
+        )
+        if stored_path is None:
+            raise CameraError("The captured frame could not be stored.")
         connection.execute(
             """
             UPDATE cameras
