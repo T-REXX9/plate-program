@@ -32,9 +32,9 @@ def main() -> None:
     database = connection()
     try:
         with database.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'administrator'")
+            cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'system_owner'")
             if int(cursor.fetchone()[0]) > 0:
-                print("An administrator account already exists; it was preserved.")
+                print("A system owner account already exists; it was preserved.")
                 return
 
         while True:
@@ -55,7 +55,7 @@ def main() -> None:
 
         with database.cursor() as cursor:
             cursor.execute(
-                "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, 'administrator')",
+                "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, 'system_owner')",
                 (username, generate_password_hash(password)),
             )
             administrator_id = cursor.lastrowid

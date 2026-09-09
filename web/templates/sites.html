@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Villages & Gates · Gatekeeper Central{% endblock %}
+{% block page_name %}Villages & Gates{% endblock %}
+{% block content %}
+<div class="page-heading compact-heading">
+  <div><p class="eyebrow">Setup Guide</p><h1>Platform Setup</h1><p>Follow these three steps to bring a new physical gate online.</p></div>
+</div>
+
+{% if new_credential %}
+<section class="panel credential-reveal" style="border: 2px solid var(--accent); background: var(--accent-light);">
+  <div class="panel-heading"><div><h2>Save your controller credential</h2><p><strong>Copy this now.</strong> For security, the key is never shown again.</p></div></div>
+  <dl><dt>Controller ID</dt><dd><code>{{ new_credential.controller_id }}</code></dd><dt>Controller key</dt><dd><code>{{ new_credential.controller_key }}</code></dd></dl>
+</section>
+{% endif %}
+
+<div class="site-admin-grid">
+  <section class="panel">
+    <div class="panel-heading"><div><h2>Step 1: Add a village</h2><p>Create the community first.</p></div></div>
+    <form class="stacked-form" method="post" action="{{ url_for('village_create') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Village Name<input name="name" required maxlength="160" placeholder="e.g. Green Meadows"></label>
+      <label>Short ID (for URLs)<input name="village_uid" required maxlength="64" placeholder="e.g. green-meadows"></label>
+      <label>Timezone<input name="timezone" value="Asia/Manila" required maxlength="64"></label>
+      <button class="primary-button" type="submit">Create village</button>
+    </form>
+  </section>
+
+  <section class="panel" style="opacity: {{ '1' if villages else '0.5' }};">
+    <div class="panel-heading"><div><h2>Step 2: Add a gate</h2><p>Add a physical entrance to the village.</p></div></div>
+    <form class="stacked-form" method="post" action="{{ url_for('gate_create') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Select Village<select name="village_id" required {% if not villages %}disabled{% endif %}>{% for village in villages %}<option value="{{ village.id }}">{{ village.name }}</option>{% endfor %}</select></label>
+      <label>Gate Name<input name="name" required maxlength="160" placeholder="e.g. Main Gate" {% if not villages %}disabled{% endif %}></label>
+      <label>Short ID<input name="gate_uid" required maxlength="64" placeholder="e.g. main-gate" {% if not villages %}disabled{% endif %}></label>
+      <label>Traffic Direction<select name="direction" {% if not villages %}disabled{% endif %}><option value="entry">Entry</option><option value="exit">Exit</option><option value="both">Entry and exit</option></select></label>
+      <button class="primary-button" type="submit" {% if not villages %}disabled{% endif %}>Create gate</button>
+    </form>
+  </section>
+
+  <section class="panel" style="opacity: {{ '1' if gates else '0.5' }};">
+    <div class="panel-heading"><div><h2>Step 3: Connect hardware</h2><p>Generate a key for the gate equipment.</p></div></div>
+    <form class="stacked-form" method="post" action="{{ url_for('controller_create') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Select Gate<select name="gate_id" required {% if not gates %}disabled{% endif %}>{% for gate in gates %}<option value="{{ gate.id }}">{{ gate.village_name }} · {{ gate.name }}</option>{% endfor %}</select></label>
+      <label>Device Name<input name="display_name" required maxlength="100" placeholder="e.g. Main Gate Unit 1" {% if not gates %}disabled{% endif %}></label>
+      <label>Device ID<input name="controller_uid" required maxlength="64" placeholder="e.g. gate-unit-01" {% if not gates %}disabled{% endif %}></label>
+      <label>Device Type<select name="controller_type" {% if not gates %}disabled{% endif %}><option value="plate">Camera (Plate + RFID)</option><option value="rfid">RFID Reader only</option></select></label>
+      <button class="primary-button" type="submit" {% if not gates %}disabled{% endif %}>Generate device key</button>
+    </form>
+  </section>
+</div>
+
+{% if unassigned_controllers %}
+<section class="panel unassigned-controller-panel">
+  <div class="panel-heading"><div><h2>Legacy unassigned controllers</h2><p>These controllers are blocked from all village data until you explicitly assign each one to a gate.</p></div><span class="status inactive">Action required</span></div>
+  <div class="table-wrap"><table><thead><tr><th>Controller</th><th>Type</th><th>Assign to gate</th></tr></thead><tbody>
+    {% for controller in unassigned_controllers %}<tr><td><strong>{{ controller.display_name }}</strong><small class="cell-note">{{ controller.controller_uid }}</small></td><td>{{ 'RFID only' if controller.controller_type == 'rfid' else 'Plate + RFID' }}</td><td><form class="inline-assignment-form" method="post" action="{{ url_for('controller_assign', controller_uid=controller.controller_uid) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="gate_id" required>{% for gate in gates %}<option value="{{ gate.id }}">{{ gate.village_name }} · {{ gate.name }}</option>{% endfor %}</select><button class="primary-button" type="submit" {% if not gates %}disabled{% endif %}>Assign controller</button></form>{% if not gates %}<small class="cell-note">Create a village and gate first.</small>{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-heading"><div><h2>Manage Villages</h2><p>Disabling a village immediately blocks all of its gates and hardware.</p></div></div>
+  <div class="table-wrap"><table><thead><tr><th>Village Name</th><th>Total Gates</th><th>Total Hardware</th><th>Status</th><th>Action</th></tr></thead><tbody>
+  {% for village in villages %}<tr><td><strong>{{ village.name }}</strong><small class="cell-note">{{ village.village_uid }}</small></td><td>{{ village.gate_count }}</td><td>{{ village.controller_count }}</td><td><span class="status {{ 'authorized' if village.is_active else 'inactive' }}">{{ 'Active' if village.is_active else 'Disabled' }}</span></td><td><form method="post" action="{{ url_for('village_toggle', village_id=village.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-button" type="submit">{{ 'Disable' if village.is_active else 'Enable' }}</button></form></td></tr>
+  {% else %}<tr><td colspan="5"><div class="empty-state"><strong>No villages yet</strong><span>Start by creating your first village above.</span></div></td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading"><div><h2>Manage Gates</h2><p>Physical entrances and exits across all your villages.</p></div></div>
+  <div class="table-wrap"><table><thead><tr><th>Village</th><th>Gate Name</th><th>Direction</th><th>Hardware Units</th><th>Status</th><th>Action</th></tr></thead><tbody>
+  {% for gate in gates %}<tr><td>{{ gate.village_name }}</td><td><strong>{{ gate.name }}</strong><small class="cell-note">{{ gate.gate_uid }}</small></td><td>{{ gate.direction | title }}</td><td>{{ gate.controller_count }}</td><td><span class="status {{ 'authorized' if gate.is_active else 'inactive' }}">{{ 'Active' if gate.is_active else 'Disabled' }}</span></td><td><form method="post" action="{{ url_for('gate_toggle', gate_id=gate.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-button" type="submit">{{ 'Disable' if gate.is_active else 'Enable' }}</button></form></td></tr>
+  {% else %}<tr><td colspan="6"><div class="empty-state"><strong>No gates yet</strong><span>Create a gate to allow vehicles in or out.</span></div></td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading"><div><h2>Bind cameras to gates</h2><p>The central server captures and recognizes plates. RTSP endpoints are captured over TCP; keep camera credentials protected.</p></div></div>
+  {% for gate in gates %}
+  <form class="stacked-form" method="post" action="{{ url_for('camera_configure', gate_id=gate.id) }}" style="margin-bottom: 1.5rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <p><strong>{{ gate.village_name }} · {{ gate.name }}</strong>{% if gate.camera_uid %}<small class="cell-note">Current camera: {{ gate.camera_uid }}</small>{% endif %}</p>
+    <label>Camera ID<input name="camera_uid" required maxlength="64" placeholder="e.g. village1-main-camera-01"></label>
+    <label>Display Name<input name="display_name" required maxlength="100" placeholder="e.g. Main Gate Camera"></label>
+    <label>Transport<select name="transport"><option value="rtsp"{% if gate.camera_transport == 'rtsp' %} selected{% endif %}>RTSP camera</option><option value="http_mjpeg"{% if gate.camera_transport == 'http_mjpeg' %} selected{% endif %}>HTTP/MJPEG camera</option><option value="agent"{% if gate.camera_transport == 'agent' %} selected{% endif %}>Camera agent</option></select></label>
+    <label>Endpoint URL<input name="endpoint_url" type="url" maxlength="1000" placeholder="rtsp://camera-private-address:554/stream1"><small class="cell-note">For RTSP, leave blank when using CAMERA_ENDPOINT_&lt;CAMERA_ID&gt; in the server environment. Do not commit credentials or paste them into chat.</small></label>
+    <button class="primary-button" type="submit">Bind camera to {{ gate.name }}</button>
+  </form>
+  {% if gate.camera_uid %}
+  <form method="post" action="{{ url_for('camera_test', gate_id=gate.id) }}" style="margin-top: -1rem; margin-bottom: 1.5rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="secondary-button" type="submit">Capture frame</button>
+  </form>
+  {% if camera_test_uid == gate.camera_uid %}<img src="{{ url_for('camera_test_frame', camera_uid=gate.camera_uid) }}?v={{ camera_test_version }}" alt="Latest test frame from {{ gate.camera_name }}" style="display:block; max-width:100%; max-height:360px; object-fit:contain; border-radius:12px; margin-bottom:1.5rem;">{% endif %}
+  {% endif %}
+  {% else %}<div class="empty-state"><strong>Create a gate first</strong><span>Each gate can have one bound camera.</span></div>{% endfor %}
+</section>
+
+<section class="panel">
+  <div class="panel-heading"><div><h2>Manage Devices</h2><p>Access-control devices connected to your gates.</p></div></div>
+  <div class="table-wrap"><table><thead><tr><th>Village</th><th>Gate</th><th>Device Name</th><th>Type</th><th>Connection</th><th>Actions</th></tr></thead><tbody>
+    {% for controller in site_controllers %}<tr><td><strong>{{ controller.village_name }}</strong><small class="cell-note">{{ controller.village_uid }}</small></td><td>{{ controller.gate_name }}<small class="cell-note">{{ controller.gate_uid }}</small></td><td>{{ controller.display_name }}<small class="cell-note">{{ controller.controller_uid }}</small></td><td>{{ 'RFID only' if controller.controller_type == 'rfid' else 'Camera (Plate + RFID)' }}</td><td><span class="status {{ 'authorized' if controller.is_active and controller.controller_online else 'inactive' }}">{{ 'Disabled' if not controller.is_active else ('Online' if controller.controller_online else 'Offline') }}</span></td><td class="row-actions"><form method="post" action="{{ url_for('controller_toggle', controller_uid=controller.controller_uid) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-button" type="submit">{{ 'Disable' if controller.is_active else 'Enable' }}</button></form><form method="post" action="{{ url_for('controller_rotate_key', controller_uid=controller.controller_uid) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-button" type="submit">Generate new key</button></form></td></tr>
+    {% else %}<tr><td colspan="6"><div class="empty-state"><strong>No hardware connected</strong><span>Provision a controller above to get a hardware key.</span></div></td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}

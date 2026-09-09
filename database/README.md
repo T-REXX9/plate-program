@@ -3,10 +3,11 @@
 The web server uses a native MySQL 8 installation exclusively. There is no
 SQLite runtime, database file, Docker container, or container volume.
 
-The schema contains registered vehicles, a dedicated `rfid_stickers` registry,
-access events with plate/RFID authorization details, dashboard users, audit
-logs, system status, settings, indexes, foreign keys, constraints, and the
-seven-day activity view. It is safe to apply `schema.sql` more than once.
+The schema contains villages, gates, strict controller assignments, hashed
+controller credentials, village memberships, village-scoped vehicles and RFID
+stickers, access events, commands, dashboard users, audit logs, settings,
+indexes, foreign keys, constraints, and tenant-aware activity summaries. It is
+safe to apply `schema.sql` more than once.
 
 Three additive `account_service_*` tables reserve a minimal local entitlement
 cache, synchronization cursor, and sync audit trail for the future homeowner

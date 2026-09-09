@@ -32,7 +32,7 @@
       {% for controller in controllers %}<option value="{{ controller.controller_uid }}" {{ 'selected' if controller.controller_uid == selected_controller_uid else '' }}>{{ controller.display_name }}</option>{% endfor %}
     </select>
   </div>
-  {% if current_role == 'administrator' %}<button class="controller-rename" type="button" title="Rename selected controller" aria-label="Rename selected controller" {{ 'disabled' if not selected_controller else '' }}>✎</button>{% endif %}
+  {% if current_role in ['administrator', 'system_owner'] %}<button class="controller-rename" type="button" title="Rename selected controller" aria-label="Rename selected controller" {{ 'disabled' if not selected_controller else '' }}>✎</button>{% endif %}
 </div>
 {%- endmacro %}
 <html lang="en">
@@ -41,7 +41,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f8f9fa">
-  <title>{% block title %}Gatekeeper HQ{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <title>{% block title %}Gatekeeper Central{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <script src="{{ url_for('static', filename='notifications.js') }}" defer></script>
   <script src="{{ url_for('static', filename='controllers.js') }}" defer></script>
@@ -50,24 +51,27 @@
 <body class="{% block body_class %}{% endblock %}">
   {% if current_user %}
   <aside class="app-sidebar" aria-label="Primary navigation">
-    <a class="sidebar-brand" href="{{ url_for('dashboard') }}" aria-label="Gatekeeper HQ overview">
+    <a class="sidebar-brand" href="{{ url_for('dashboard') }}" aria-label="Gatekeeper Central overview">
       <span class="brand-shield" aria-hidden="true">G</span>
-      <span><strong>Gatekeeper HQ</strong><small>Plate access control</small></span>
+      <span><strong>Gatekeeper Central</strong><small>Multi-village access</small></span>
     </a>
 
     <nav class="sidebar-navigation">
       <a class="nav-item {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><span class="nav-symbol" aria-hidden="true">▦</span><span>Overview</span></a>
       <a class="nav-item {{ 'active' if request.endpoint in ['hardware', 'hardware_command'] else '' }}" href="{{ url_for('hardware') }}"><span class="nav-symbol" aria-hidden="true">⌁</span><span>Hardware</span></a>
-      {% if current_role == 'administrator' %}
+      {% if is_system_owner %}
+      <a class="nav-item {{ 'active' if request.endpoint in ['sites', 'village_create', 'gate_create', 'controller_create', 'controller_assign'] else '' }}" href="{{ url_for('sites') }}"><span class="nav-symbol" aria-hidden="true">⌂</span><span>Villages & Gates</span></a>
+      {% endif %}
+      {% if can_manage_tenant %}
       <a class="nav-item {{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}"><span class="nav-symbol" aria-hidden="true">▰</span><span>Vehicles</span></a>
-      <a class="nav-item {{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}"><span class="nav-symbol" aria-hidden="true">♙</span><span>Guards</span></a>
+      <a class="nav-item {{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}"><span class="nav-symbol" aria-hidden="true">♙</span><span>Village users</span></a>
       {% endif %}
       <a class="nav-item {{ 'active' if request.endpoint in ['logs', 'logs_export'] else '' }}" href="{{ url_for('logs') }}"><span class="nav-symbol" aria-hidden="true">↻</span><span>Access log</span></a>
     </nav>
 
     <div class="sidebar-account">
       <div class="account-avatar" aria-hidden="true">{{ current_user[:1] | upper }}</div>
-      <span><strong>{{ current_user }}</strong><small>{{ 'Security guard' if current_role == 'viewer' else 'Administrator' }}</small></span>
+      <span><strong>{{ current_user }}</strong><small>{{ 'System owner' if is_system_owner else (tenant_role | replace('_', ' ') | title if tenant_role else 'No village access') }}</small></span>
       <form method="post" action="{{ url_for('logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="icon-button" type="submit" aria-label="Sign out" title="Sign out">⇥</button>
@@ -81,8 +85,13 @@
       <span class="topbar-context">Gate operations console</span>
     </div>
     <div class="topbar-user">
+      {% if villages and is_system_owner %}<form class="village-switcher" method="post" action="{{ url_for('select_village') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label><span class="sr-only">Active village</span><select name="village_id" aria-label="Active village">{% for village in villages %}<option value="{{ village.id }}" {{ 'selected' if village.id == selected_village_id else '' }}>{{ village.name }}</option>{% endfor %}</select></label>
+        <button type="submit">Switch</button>
+      </form>{% elif villages %}<div class="village-label"><strong>{{ villages[0].name }}</strong></div>{% elif is_system_owner %}<a class="network-setup-link" href="{{ url_for('sites') }}">＋ Add first village</a>{% endif %}
       {{ controller_switcher(controllers, selected_controller, selected_controller_uid, current_role) }}
-      <span class="topbar-role">{{ 'Guard view' if current_role == 'viewer' else 'Administrator' }}</span>
+      <span class="topbar-role">{{ 'System owner' if is_system_owner else (tenant_role | replace('_', ' ') | title if tenant_role else 'No access') }}</span>
       <span class="account-avatar" aria-hidden="true">{{ current_user[:1] | upper }}</span>
     </div>
   </header>
@@ -110,9 +119,10 @@
   <nav class="mobile-navigation" aria-label="Mobile navigation">
     <a class="{{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><span aria-hidden="true">▦</span><small>Overview</small></a>
     <a class="{{ 'active' if request.endpoint == 'hardware' else '' }}" href="{{ url_for('hardware') }}"><span aria-hidden="true">⌁</span><small>Hardware</small></a>
-    {% if current_role == 'administrator' %}<a class="{{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}"><span aria-hidden="true">▰</span><small>Vehicles</small></a>{% endif %}
+    {% if is_system_owner %}<a class="{{ 'active' if request.endpoint in ['sites', 'village_create', 'gate_create', 'controller_create', 'controller_assign'] else '' }}" href="{{ url_for('sites') }}"><span aria-hidden="true">⌂</span><small>Sites</small></a>{% endif %}
+    {% if can_manage_tenant %}<a class="{{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}"><span aria-hidden="true">▰</span><small>Vehicles</small></a>{% endif %}
     <a class="{{ 'active' if request.endpoint == 'logs' else '' }}" href="{{ url_for('logs') }}"><span aria-hidden="true">↻</span><small>Logs</small></a>
-    {% if current_role == 'administrator' %}<a class="{{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}"><span aria-hidden="true">♙</span><small>Guards</small></a>{% endif %}
+    {% if can_manage_tenant %}<a class="{{ 'active' if request.endpoint in ['users', 'user_new'] else '' }}" href="{{ url_for('users') }}"><span aria-hidden="true">♙</span><small>Users</small></a>{% endif %}
     <form method="post" action="{{ url_for('logout') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit"><span aria-hidden="true">⇥</span><small>Sign out</small></button>

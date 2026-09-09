@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}New Guard Account · Gatekeeper HQ{% endblock %}
-{% block page_name %}New Guard Account{% endblock %}
+{% block title %}New Village User · Gatekeeper Central{% endblock %}
+{% block page_name %}New Village User{% endblock %}
 {% block content %}
 <div class="page-heading compact-heading">
-  <div><p class="eyebrow">Read-only access</p><h1>Create guard account</h1><p>This account can only view the dashboard, latest photo, and access logs.</p></div>
+  <div><p class="eyebrow">Village membership</p><h1>Create village user</h1><p>The account is restricted to the currently selected village.</p></div>
   <a class="secondary-button" href="{{ url_for('users') }}">Cancel</a>
 </div>
 
@@ -13,8 +13,9 @@
     <label>Username<input name="username" value="{{ username }}" minlength="3" autocomplete="off" required></label>
     <label>Password<input type="password" name="password" minlength="10" autocomplete="new-password" required></label>
     <label>Confirm password<input type="password" name="confirmation" minlength="10" autocomplete="new-password" required></label>
-    <p class="permission-note"><strong>Guard permissions</strong><span>View the overview, latest enhanced plate crop, and access logs. Vehicle records, camera controls, exports, and account administration are blocked.</span></p>
-    <div class="form-actions"><a class="secondary-button" href="{{ url_for('users') }}">Cancel</a><button class="primary-button" type="submit">Create guard account</button></div>
+    <label>Village role<select name="village_role" required><option value="village_admin" {{ 'selected' if village_role == 'village_admin' else '' }}>Village administrator</option><option value="security_guard" {{ 'selected' if village_role == 'security_guard' else '' }}>Security guard — view and operate assigned gates</option><option value="homeowner" {{ 'selected' if village_role == 'homeowner' else '' }}>Homeowner — household access only</option></select></label>
+    <p class="permission-note"><strong>Tenant isolation</strong><span>This membership grants access only inside the active village. The system owner can later disable the account or change its assignments.</span></p>
+    <div class="form-actions"><a class="secondary-button" href="{{ url_for('users') }}">Cancel</a><button class="primary-button" type="submit">Create village user</button></div>
   </form>
 </section>
 {% endblock %}

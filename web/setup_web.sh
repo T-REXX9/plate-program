@@ -4,7 +4,16 @@ set -euo pipefail
 web_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="$(cd "$web_dir/.." && pwd)"
 venv_dir="$project_dir/.web-venv"
-python_command="${PLATE_PYTHON:-python3}"
+if [[ -n "${PLATE_PYTHON:-}" ]]; then
+    python_command="$PLATE_PYTHON"
+elif command -v python3.11 >/dev/null 2>&1; then
+    # Keep development and production on the same well-supported runtime.
+    # Homebrew's unversioned python3 can move to a brand-new CPython release
+    # before all web dependencies have caught up.
+    python_command=python3.11
+else
+    python_command=python3
+fi
 if ! "$python_command" -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
     if [[ -x /opt/python-3.11.15/bin/python3.11 ]]; then
         python_command=/opt/python-3.11.15/bin/python3.11

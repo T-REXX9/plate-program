@@ -1,18 +1,22 @@
 # Plate Access Control Web Server
 
-This repository contains the native MySQL database layer, protected reader API,
-and admin dashboard. It runs on a separate PC so the Raspberry Pi can dedicate
-its resources to YOLO detection and OCR.
+This repository is the centralized Gatekeeper server: one native MySQL database,
+authenticated controller API, server-owned camera/plate recognition, and an
+administration dashboard for multiple villages, subdivisions, and gates. ESP8266
+NodeMCU controllers remain focused on sensors, RFID acquisition, gate safety, and
+barrier control.
 
 No Docker or SQLite is used.
 
 ## Data flow
 
-1. An administrator presses **Capture plate** on the dashboard.
-2. The Raspberry Pi claims the request while YOLO and OCR remain idle.
-3. The Pi captures three frames and selects the best detected plate crop.
-4. PP-OCRv5 returns a clean alphanumeric value and uploads it with the crop.
-5. The server checks MySQL, stores the event, and returns authorized or denied.
+1. The NodeMCU detects a vehicle on the inductive loop.
+2. It creates a server capture attempt and separately submits any RFID result.
+3. The central camera worker captures the gate-bound camera over RTSP/TCP or a
+   supported camera agent transport.
+4. Server-side detection and OCR return a plate and annotated image.
+5. The server combines plate and RFID evidence, checks MySQL, stores one event,
+   and returns authorized or denied to the NodeMCU.
 
 RFID is optional and is selected during `controller -configure`. The controller
 places the confirmed UHFReader18-compatible device in Answer Mode, requests an
@@ -22,16 +26,15 @@ plate registration or an active RFID sticker in MySQL opens the barrier. Access 
 denied only when neither credential is authorized.
 Binary sticker values are stored as uppercase hexadecimal without separators,
 for example `3045673030553F9030553F90`.
-6. The Pi uploads the raw camera frame and an annotated copy containing the
-   detected plate box. The dashboard can switch between them without another
-   capture; the Pi continues storing only the enhanced crop locally.
+6. The server stores the annotated camera result and keeps the attempt history,
+   including late RFID or plate evidence.
 7. A green/red LED-style indicator shows whether the latest access result was
-   authorized or denied, alongside the Pi's frame, YOLO, OCR, upload, and total
-   timings.
+   authorized or denied, alongside the server's capture and recognition status.
 8. The dashboard synchronizes automatically without full-page refreshes.
-9. A live traffic-light panel shows the Raspberry Pi connection, camera,
+9. A live traffic-light panel shows the hardware connection, camera,
    inductive loop, IR safety beam, boom barrier, and red/green traffic output.
-   The Pi reports these signals once per second without running YOLO or OCR.
+   The NodeMCU reports these signals once per second; recognition remains on the
+   server and never runs on the controller.
 10. The separate **Hardware** page gives administrators confirmed diagnostic
     controls for barrier UP/DOWN and three-second red/green signal tests. Guards
     can view live indicators but cannot send hardware commands.
@@ -44,23 +47,34 @@ for example `3045673030553F9030553F90`.
     field and never transmit until the administrator confirms Send. The lane
     should remain clear during this test.
 
-## Multiple controllers
+## Multi-village ownership model
 
-One Plate Program server can manage multiple lanes at the same time. Raspberry
-Pi controllers register as **Plate + RFID** units using the Pi serial number (or
-the machine ID as a fallback). Camera-less controllers register as **RFID only**
-units using their chip identity. Every heartbeat, recognition, access event, and
-remote command carries that stable controller ID.
+The hierarchy is strict: a village has one or more gates, and every controller
+is provisioned to exactly one gate. The server resolves the authenticated
+controller credential to `controller -> gate -> village`; it never trusts a
+village or gate ID submitted by controller hardware. An unprovisioned controller,
+an invalid key, a revoked key, an inactive gate, or an inactive village is rejected.
 
-The selector at the top-right of the website shows all known controllers with a
-filled dot for online and an empty dot for offline. The line below the selected
-name shows its controller type and permanent ID. Administrators can use the
-pencil button to give each controller a recognizable name such as `North Gate`.
-Switching controllers changes the live hardware state, latest capture/RFID
-decision, access counters, seven-day activity, recent events, access log, and
-hardware-command target. Vehicle and RFID registrations remain shared across
-all controllers so the same registered credential can be authorized at any
-lane.
+Vehicles, RFID stickers, events, commands, and guard access are village-scoped.
+The same plate or RFID value may exist independently in two villages without one
+village authorizing or viewing the other's record. Events retain their village,
+gate, and controller ownership as historical facts even if names later change.
+
+After the first administrator signs in, open **Villages & Gates** and create, in
+order:
+
+1. the village;
+2. each physical gate;
+3. each Plate + RFID or RFID-only controller.
+
+Provisioning displays a controller ID and a random controller key once. Store the
+key in that controller's private configuration. Only a SHA-256 digest is stored
+in MySQL. Every controller request sends the ID plus the key using the
+`X-Controller-Key` header (or `controller_key` form field).
+
+The village selector changes the active tenant. The controller selector then
+changes the live gate, latest event, counters, activity, access log, and hardware
+command target within that village.
 
 When the latest event is denied, administrators can register its detected plate
 or RFID directly from the Overview. The registration form receives the detected
@@ -69,7 +83,7 @@ value automatically. The Vehicles page supports normalized plate searches (so
 permanent-delete actions. Deleting a vehicle removes its RFID assignment but
 keeps its historical access events.
 
-For a custom Raspberry Pi identifier, set `CONTROLLER_ID` in the controller's
+For a custom hardware identifier, set `CONTROLLER_ID` in the controller's
 private `.env`. It must be unique and contain only letters, numbers, `.`, `-`,
 `_`, or `:`. Normally the automatically generated hardware-based ID should be
 left unchanged.
@@ -85,10 +99,20 @@ curl -fsSL https://raw.githubusercontent.com/T-REXX9/plate-program/main/install_
 Do not add `sudo` on macOS. The installer requests administrator permission only
 for the specific files that need it. On Ubuntu it requests `sudo` itself.
 
+Debian-based OS is available as a developer-only compatibility path. On actual
+gate hardware, the same command asks whether the installer is being run
+by an authorized developer and then requests the developer password without
+showing it on screen. Successful authorization is recorded in a root-owned file
+so future `program -update` operations remain unattended. This path installs
+MariaDB from the OS package manager because Oracle does not publish an equivalent
+native MySQL Server package for this platform; the application schema and SQL
+client remain compatible. Regular Ubuntu and macOS installations continue to
+use Oracle MySQL.
+
 The installer handles Git, Python, MySQL, the database and restricted database
 account, a random web-session secret, the Python environment, database migrations, the
 first administrator account, and background startup. It prints the local-network
-website address needed by the Raspberry Pi.
+website address needed by the hardware controller.
 
 Ubuntu 20.04 includes an older system Python. On that release, the installer
 downloads the official Python 3.11.15 source archive, verifies its Python.org
@@ -121,10 +145,9 @@ program -start
 `main`, updates dependencies and the database schema, and restarts it. If an
 update fails, the previous working revision is restored automatically.
 
-The schema update adds a dedicated `rfid_stickers` table without deleting
-existing vehicle or access records. Administrators can assign one unique RFID
-sticker from the vehicle add or edit screen, while both administrators and
-read-only guards can see the tag in the live dashboard and access log.
+The centralized schema includes villages, gates, controller credentials,
+village memberships, village-scoped vehicles/RFID values, and immutable tenant
+ownership on events and commands.
 
 The macOS service starts whenever the installing user logs in. The Ubuntu service
 starts during boot. Windows requires a separate PowerShell installer and is not
@@ -164,7 +187,7 @@ Run the following SQL, replacing the example password:
 
 ```sql
 CREATE DATABASE plate_access_control
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE USER 'gatekeeper'@'127.0.0.1'
   IDENTIFIED BY 'REPLACE_WITH_A_SECURE_PASSWORD';
@@ -178,7 +201,7 @@ FLUSH PRIVILEGES;
 
 The website and MySQL normally run on the same PC, so the database account is
 restricted to the `127.0.0.1` loopback interface. MySQL does not need to be
-exposed to the Raspberry Pi or the rest of the network.
+exposed to the hardware controllers or the rest of the network.
 
 ## Configure and start the website
 
@@ -197,14 +220,22 @@ Edit `.env` and set `MYSQL_PASSWORD` to the password used above. Then run:
 Open `http://localhost:8080`. Other devices on the same local network can open
 `http://PC_IP_ADDRESS:8080`.
 
+Sign in as the administrator and open **Villages & Gates** before connecting
+hardware. A controller cannot self-register and is intentionally rejected until
+it has been provisioned to a gate.
+
 The `.env` file contains private MySQL credentials and is excluded from Git.
 The default `MYSQL_TIME_ZONE=+08:00` keeps timestamps in Philippine time.
 
-The Pi polls `POST /api/reader/commands/next` for lightweight capture requests,
-then sends results to `POST /api/reader/recognitions`. MySQL lookup and event
-storage occur only on the PC. These reader endpoints do not require an API token,
-so port 8080 must remain on the trusted local network and must not be forwarded
-from the internet.
+The NodeMCU calls `POST /api/controller/capture-request` when the loop detects a
+vehicle, submits RFID to `POST /api/rfid-controller/recognitions`, and polls
+`POST /api/controller/access-result` for the server decision. MySQL lookup,
+camera capture, plate recognition, and event storage occur on the central
+server. Every controller endpoint requires the provisioned controller ID and
+controller key. TLS remains mandatory when the API is exposed through
+Cloudflare or any public network. For the current LAN deployment, the camera
+endpoint is a private RTSP address reachable directly by the central server;
+Cloudflare Tunnel is optional and not required.
 
 ## Mobile account integration readiness
 
@@ -214,7 +245,6 @@ account entitlements and synchronization metadata. It is disabled by default:
 ```text
 MOBILE_ACCOUNT_INTEGRATION_ENABLED=0
 MOBILE_ACCOUNT_SERVICE_URL=
-MOBILE_ACCOUNT_SITE_ID=
 MOBILE_ACCOUNT_SYNC_SECRET=
 ```
 
@@ -224,9 +254,10 @@ mobile authentication, payment processing, or Xendit integration runs in this
 repository yet. Most importantly, the reader authorization query does not use
 the dormant entitlement tables, so existing gate behavior is unchanged.
 
-The future public account service will hold homeowner identities, subscription
-records, payment history, and Xendit credentials. Plate Program will retain only
-the minimum vehicle entitlement data required for local, offline gate decisions.
+The future account service will hold homeowner identities, subscription records,
+payment history, and Xendit credentials. Entitlement and sync state are already
+village-scoped so one village can never affect another village's registrations.
+Authorization enforcement remains off until the mobile/payment phase is approved.
 
 ## Backups
 

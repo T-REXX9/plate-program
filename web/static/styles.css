@@ -431,3 +431,128 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+.site-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stacked-form {
+  display: grid;
+  gap: .85rem;
+  padding: 1.25rem;
+}
+
+.stacked-form label {
+  display: grid;
+  gap: .35rem;
+  font-weight: 700;
+}
+
+.stacked-form input,
+.stacked-form select {
+  width: 100%;
+}
+
+.credential-reveal {
+  border: 2px solid #2563eb;
+  margin-bottom: 1rem;
+}
+
+.credential-reveal dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: .7rem 1rem;
+  padding: 1.25rem;
+}
+
+.credential-reveal dd { margin: 0; overflow-wrap: anywhere; }
+
+.village-switcher {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.village-switcher select,
+.village-switcher button {
+  min-height: 2.6rem;
+  border: 1px solid #c9ceda;
+  border-radius: .65rem;
+  background: #fff;
+  padding: .45rem .7rem;
+  font: inherit;
+}
+
+.village-switcher button { color: #243da5; font-weight: 800; cursor: pointer; }
+
+.network-setup-link {
+  display: inline-flex;
+  min-height: 2.6rem;
+  align-items: center;
+  border: 1px solid #c9ceda;
+  border-radius: .65rem;
+  padding: .45rem .8rem;
+  color: #243da5;
+  background: #fff;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.central-network-panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.35fr) minmax(360px, 1fr);
+  gap: 1.25rem 2rem;
+  align-items: center;
+  padding: 1.35rem;
+  border-left: 5px solid var(--primary);
+}
+
+.central-network-panel.needs-setup {
+  border-color: #f59e0b;
+  background: linear-gradient(110deg, #fff, #fffaf0);
+}
+
+.central-network-copy h1 { margin: .15rem 0 .35rem; font-size: clamp(1.4rem, 2vw, 2rem); }
+.central-network-copy p:not(.eyebrow) { max-width: 720px; margin: 0 0 1rem; color: var(--muted); line-height: 1.5; }
+.central-network-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
+.central-network-metrics div { min-height: 82px; display: flex; flex-direction: column; justify-content: center; padding: .7rem; border: 1px solid var(--outline); border-radius: .75rem; background: #fff; text-align: center; }
+.central-network-metrics strong { font-size: 1.65rem; color: var(--primary); }
+.central-network-metrics strong.online-count { color: var(--success); }
+.central-network-metrics span { color: var(--muted); font-size: .75rem; font-weight: 800; }
+.central-controller-breakdown { grid-column: 2; display: flex; justify-content: flex-end; gap: .5rem; }
+.central-controller-breakdown span { border-radius: 999px; padding: .35rem .65rem; background: var(--primary-soft); color: var(--primary); font-size: .75rem; font-weight: 800; }
+.central-unassigned-warning { grid-column: 1 / -1; border-radius: .65rem; padding: .65rem .8rem; color: #92400e; background: #fff3cd; font-weight: 800; text-decoration: none; }
+.unassigned-controller-panel { margin-bottom: 1rem; border-left: 5px solid #f59e0b; }
+.inline-assignment-form { display: flex; align-items: center; gap: .6rem; }
+.inline-assignment-form select { min-width: 220px; }
+
+@media (max-width: 1000px) {
+  .site-admin-grid, .central-network-panel { grid-template-columns: 1fr; }
+  .central-controller-breakdown { grid-column: 1; justify-content: flex-start; }
+}
+
+@media (max-width: 600px) {
+  .central-network-metrics { grid-template-columns: repeat(2, 1fr); }
+  .central-network-panel { padding: 1rem; }
+  .inline-assignment-form { align-items: stretch; flex-direction: column; }
+  .inline-assignment-form select { min-width: 0; width: 100%; }
+}
+
+/* Setup guide styles */
+.site-admin-grid .panel {
+  display: flex;
+  flex-direction: column;
+}
+.site-admin-grid .panel-heading h2 {
+  color: var(--accent);
+  font-weight: 700;
+}
+.site-admin-grid .stacked-form {
+  flex-grow: 1;
+}
+.credential-reveal {
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+}

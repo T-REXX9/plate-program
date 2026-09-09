@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Gatekeeper">
+  <rect width="64" height="64" rx="14" fill="#176b62"/>
+  <path d="M32 10 49 17v14c0 11-7 18-17 23-10-5-17-12-17-23V17z" fill="#f8f9fa"/>
+  <path d="M32 18 42 22v9c0 6-3.8 10.4-10 14-6.2-3.6-10-8-10-14v-9z" fill="#176b62"/>
+</svg>

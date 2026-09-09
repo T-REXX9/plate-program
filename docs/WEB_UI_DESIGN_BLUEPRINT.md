@@ -11,7 +11,7 @@
 
 Plate Program is the local control and monitoring website for a vehicle entrance gate. It receives recognition results from either:
 
-1. A Raspberry Pi plate controller with a camera, YOLO plate detection, OCR, RFID, GPIO sensors, traffic lights, and a boom barrier.
+1. A camera hardware controller with visual detection, OCR, RFID, GPIO sensors, traffic lights, and a boom barrier.
 2. A camera-less RFID controller that reads an RFID sticker and asks Plate Program whether access is authorized.
 
 The website must let gate staff understand the lane in seconds. It is an operational safety interface, not a general analytics website. The most important information is:
@@ -36,7 +36,7 @@ The visual design may change completely, but these meanings and safety relations
 The administrator can:
 
 - View the overview, live controller state, latest access event, recent access, and logs.
-- Request a camera capture from a Raspberry Pi controller.
+- Request a camera capture from a camera controller.
 - View raw and annotated camera frames.
 - Register, edit, activate, and deactivate vehicles.
 - Assign one RFID sticker to a vehicle.
@@ -362,7 +362,7 @@ States:
 - Already busy: notification explaining that capture is queued or active.
 - Request failed: error notification.
 
-This action is useful only for the Raspberry Pi camera controller. The design should disable or hide it when the active controller is RFID-only or unavailable.
+This action is useful only for the camera controller. The design should disable or hide it when the active controller is RFID-only or unavailable.
 
 ### C. Live gate indicators
 
@@ -486,7 +486,7 @@ Use the same seven live indicators and meanings as Overview. This screen polls e
 
 ### B. Controller variation
 
-Raspberry Pi controller:
+Camera controller:
 
 - Camera and all GPIO indicators are available.
 - Manual hardware actions may be enabled when the controller is online.
@@ -496,7 +496,7 @@ RFID-only controller:
 
 - Live states are visible.
 - Camera displays `Unavailable`.
-- Raspberry Pi-specific manual controls and serial console are unavailable/disabled.
+- Camera-specific manual controls and serial console are unavailable/disabled.
 - Explain the limitation; do not make disabled controls look broken.
 
 ### C. Manual boom-barrier controls
@@ -712,7 +712,7 @@ Use event cards with the decision, plate, owner, and timestamp at the top. Secon
 
 - Uses the same dashboard endpoint.
 - Frequency: every 1 second.
-- Enable manual controls only when the controller is online, is the Raspberry Pi plate controller, and gate mode is not disabled.
+- Enable manual controls only when the controller is online, is the camera plate controller, and gate mode is not disabled.
 
 ### Recognition progression
 
@@ -797,7 +797,7 @@ The designer/front-end implementer should treat these fields as the source of tr
 
 `controller_type` values currently used:
 
-- `plate`: Raspberry Pi camera/plate controller.
+- `plate`: Camera/plate controller.
 - `rfid`: Camera-less RFID controller.
 
 `latest_event` and `latest_timing` may be `null`. Image URLs exist only when `has_image` is true.
@@ -930,7 +930,7 @@ Every major screen/component should be designed in these conditions:
 3. Desktop and iPhone XS Max layouts for every primary screen.
 4. Components with all states and variants.
 5. Administrator and guard variants.
-6. Raspberry Pi camera-controller and RFID-only variants.
+6. Camera-controller and RFID-only variants.
 7. Interactive prototype for capture, recognition result, gate state changes, filtering, and confirmation dialogs.
 8. Image-frame sizing and aspect-ratio specification.
 9. Responsive table/card behavior.
@@ -951,7 +951,7 @@ The redesigned UI is acceptable when:
 - Mobile pages have no horizontal page scrolling.
 - Critical mobile information appears before historical analytics.
 - Guard users cannot see or trigger administrator actions.
-- Raspberry Pi-specific controls are unavailable for an RFID-only controller.
+- Camera-specific controls are unavailable for an RFID-only controller.
 - Every physical action requires the appropriate safety confirmation.
 - Existing backend field names, routes, CSRF protection, and role checks continue working.
 - Empty, offline, reconnecting, fault, and long-content states are fully designed.

@@ -306,8 +306,14 @@
     signal(
       "camera-lamp",
       "camera-state",
-      online ? (data.system.camera_running ? "green" : "red") : "off",
-      online ? (data.system.camera_running ? "Detected" : "Unavailable") : "Unknown",
+      data.system.camera_status === "online"
+        ? "green"
+        : (data.system.camera_status === "degraded" ? "red" : "amber"),
+      data.system.camera_status === "online"
+        ? "Online"
+        : (data.system.camera_status === "degraded"
+          ? "Error"
+          : (data.system.camera_configured ? "Not tested" : "Not configured")),
     );
     signal("rfid-lamp", "rfid-state", online ? (data.system.rfid_connected ? "green" : "red") : "off", online ? (data.system.rfid_connected ? "Connected" : "Unavailable") : "Unknown");
     signal("loop-lamp", "loop-state", online ? (data.system.loop_active ? "green" : "red") : "off", online ? (data.system.loop_active ? "Vehicle present" : "Clear") : "Unknown");

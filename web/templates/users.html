@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Guard Accounts · Gatekeeper HQ{% endblock %}
-{% block page_name %}Guard Accounts{% endblock %}
+{% block title %}Village Users · Gatekeeper Central{% endblock %}
+{% block page_name %}Village Users{% endblock %}
 {% block content %}
 <div class="page-heading compact-heading">
-  <div><p class="eyebrow">Access control</p><h1>Guard accounts</h1><p>Read-only dashboard users for security personnel at the gate.</p></div>
-  <a class="primary-button" href="{{ url_for('user_new') }}">+ Add guard account</a>
+  <div><p class="eyebrow">Access control</p><h1>Village users</h1><p>Administrators, gate operators, and read-only guards in this village.</p></div>
+  <a class="primary-button" href="{{ url_for('user_new') }}">+ Add village user</a>
 </div>
 
 <section class="panel">
@@ -15,7 +15,7 @@
       {% for user in users %}
         <tr>
           <td><strong>{{ user.username }}</strong></td>
-          <td>Logs and latest photo only</td>
+          <td>{{ user.village_role | replace('_', ' ') | title }}</td>
           <td>{{ user.created_at }}</td>
           <td>{{ user.last_login_at or 'Never' }}</td>
           <td><span class="status {{ 'authorized' if user.is_active else 'inactive' }}">{{ 'Active' if user.is_active else 'Inactive' }}</span></td>
@@ -27,7 +27,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="6"><div class="empty-state"><strong>No guard accounts yet</strong><span>Create a read-only login for the gate security guard.</span><a class="primary-button" href="{{ url_for('user_new') }}">Add guard account</a></div></td></tr>
+        <tr><td colspan="6"><div class="empty-state"><strong>No village users yet</strong><span>Create a village administrator, gate operator, or read-only guard.</span><a class="primary-button" href="{{ url_for('user_new') }}">Add village user</a></div></td></tr>
       {% endfor %}
       </tbody>
     </table>

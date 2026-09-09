@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Hardware Control · Gatekeeper HQ{% endblock %}
+{% block title %}Hardware Control · Gatekeeper Central{% endblock %}
 {% block page_name %}Hardware Control{% endblock %}
 {% block body_class %}hardware-page{% endblock %}
 {% block head %}<script src="{{ url_for('static', filename='hardware.js') }}" defer></script>{% endblock %}
@@ -14,10 +14,10 @@
   {% set indicator_grid_class = 'hardware-page-grid' %}{% include '_hardware_indicators.html' %}
 </section>
 
-{% if current_role == 'administrator' %}
+{% if can_operate_gate %}
 {% set hardware_controls_available = system.controller_online and system.controller_type == 'plate' and system.gate_state != 'disabled' %}
 <section class="panel hardware-controls-panel">
-  <div class="panel-heading"><div><h2>Manual controls</h2><p>{{ 'Protected Raspberry Pi output tests' if system.controller_type == 'plate' else 'Unavailable for the RFID-only controller' }}</p></div></div>
+  <div class="panel-heading"><div><h2>Manual controls</h2><p>{{ 'Protected gate equipment output tests' if system.controller_type == 'plate' else 'Unavailable for the RFID-only hardware' }}</p></div></div>
   <div class="hardware-warning"><strong>Keep the gate area clear.</strong><span>CLOSE is blocked whenever the IR safety beam is interrupted. Traffic-light tests automatically return to normal control after three seconds.</span></div>
   <input id="hardware-csrf" type="hidden" value="{{ csrf_token() }}">
   <div class="hardware-control-groups">
@@ -27,7 +27,7 @@
 </section>
 
 <section class="panel serial-console-panel">
-  <div class="panel-heading"><div><h2>RFID serial console</h2><p>Send a command to the reader connected to the Raspberry Pi and inspect its reply</p></div><span class="serial-port-label">/dev/serial0</span></div>
+  <div class="panel-heading"><div><h2>RFID serial console</h2><p>Send a command to the reader connected to the gate equipment and inspect its reply</p></div><span class="serial-port-label">/dev/serial0</span></div>
   <div class="hardware-warning"><strong>Use only while the lane is clear.</strong><span>A debug transaction temporarily takes control of RFID serial communication. Automatic RFID reading resumes after the timeout.</span></div>
   <div class="serial-console-layout">
     <form id="serial-form" class="serial-settings-form">
@@ -64,6 +64,6 @@ Commands are sent through the Plate Controller; this is not an operating-system 
   </div>
 </section>
 {% else %}
-<section class="panel hardware-readonly"><strong>Read-only hardware view</strong><span>Only an administrator can operate manual diagnostic controls.</span></section>
+<section class="panel hardware-readonly"><strong>Read-only hardware view</strong><span>Your village role does not permit manual gate operations.</span></section>
 {% endif %}
 {% endblock %}

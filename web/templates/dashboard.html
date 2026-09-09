@@ -1,12 +1,30 @@
 {% extends "base.html" %}
-{% block title %}Overview · Gatekeeper HQ{% endblock %}
+{% block title %}Overview · Gatekeeper Central{% endblock %}
 {% block page_name %}Plate Program{% endblock %}
 {% block body_class %}dashboard-page{% endblock %}
 {% block head %}<script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>{% endblock %}
 {% block content %}
 <span class="sr-only sync-status" id="sync-status">Connected</span>
 <div class="dashboard-flow">
-  {% if current_role == 'administrator' %}
+  {% if is_system_owner %}
+  <section class="panel central-network-panel {{ 'needs-setup' if network_summary.villages == 0 else '' }}">
+    <div class="central-network-copy">
+      <p class="eyebrow">Centralized server</p>
+      <h1>{{ 'Set up your first installation' if network_summary.villages == 0 else 'All installations' }}</h1>
+      <p>{% if network_summary.villages == 0 %}Create a village, add each physical gate, then provision its connected gate equipment. The server permanently binds every hardware unit to that gate and village.{% else %}This server separates every village while letting you switch to any gate hardware from the header.{% endif %}</p>
+      <a class="primary-button" href="{{ url_for('sites') }}">{{ 'Start centralized setup' if network_summary.villages == 0 else 'Manage villages & gates' }}</a>
+    </div>
+    <div class="central-network-metrics" aria-label="Central network summary">
+      <div><strong>{{ network_summary.villages }}</strong><span>Villages</span></div>
+      <div><strong>{{ network_summary.gates }}</strong><span>Gates</span></div>
+      <div><strong>{{ network_summary.controllers }}</strong><span>Controllers</span></div>
+      <div><strong class="{{ 'online-count' if network_summary.controllers_online else '' }}">{{ network_summary.controllers_online }}</strong><span>Online now</span></div>
+    </div>
+    {% if network_summary.controllers %}<div class="central-controller-breakdown"><span>{{ network_summary.plate_controllers }} Plate + RFID</span><span>{{ network_summary.rfid_controllers }} RFID only</span></div>{% endif %}
+    {% if network_summary.unassigned_controllers %}<a class="central-unassigned-warning" href="{{ url_for('sites') }}">⚠ {{ network_summary.unassigned_controllers }} legacy hardware unit awaiting a gate assignment</a>{% endif %}
+  </section>
+  {% endif %}
+  {% if can_operate_gate %}
   <div class="dashboard-capture-action">
     <form id="camera-capture-form" method="post" action="{{ url_for('camera_capture') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -55,7 +73,7 @@
         <div class="owner-block"><small>Registered owner</small><strong id="latest-owner">{{ latest_event.owner_name or 'Unregistered vehicle' if latest_event else '' }}</strong><span id="latest-rfid" class="rfid-value">RFID {{ (latest_event.rfid_number or 'not read') if latest_event else '' }}</span></div>
         <span id="latest-timing" class="capture-timing" {% if not latest_timing %}hidden{% endif %}{% if latest_timing %} title="Frames {{ latest_timing.frames_ms }} ms · YOLO {{ latest_timing.yolo_ms }} ms · OCR {{ latest_timing.ocr_ms }} ms · Upload {{ latest_timing.server_ms }} ms"{% endif %}>{{ latest_timing.total_ms ~ ' ms total' if latest_timing else '' }}</span>
       </div>
-      {% if current_role == 'administrator' %}
+      {% if can_manage_tenant %}
       <div id="denied-registration-actions" class="denied-registration-actions" {% if not latest_event or latest_event.decision != 'denied' or (not latest_event.rfid_number and latest_event.plate_number in ['RFID', 'UNREADABLE']) %}hidden{% endif %}>
         <div><strong>Register denied credential</strong><span>Its detected value is already filled in for you.</span></div>
         <div class="denied-registration-buttons">
@@ -68,7 +86,7 @@
   </section>
 
   <section class="panel system-panel">
-    <div class="panel-heading"><div><h2>Live gate status</h2><p>Current controller inputs and outputs</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for controller' }}</small></div>
+    <div class="panel-heading"><div><h2>Live gate status</h2><p>Current gate equipment inputs and outputs</p></div><small id="hardware-updated">{{ system.controller_seen_at or 'Waiting for hardware connection' }}</small></div>
     {% include '_hardware_indicators.html' %}
   </section>
 

@@ -6,6 +6,55 @@ branch="${PLATE_PROGRAM_BRANCH:-main}"
 label="com.gatekeeper.plate-program"
 refresh=0
 [[ "${1:-}" == "--refresh" ]] && refresh=1
+developer_override=0
+developer_override_marker="/etc/plate-program/developer-override"
+# This is a one-way SHA-256 digest. The developer password itself is never
+# stored in the public repository or written to disk by the installer.
+developer_password_sha256="8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
+
+authorize_raspberry_pi_override() {
+    local model=""
+    local answer=""
+    local supplied_password=""
+    local supplied_hash=""
+    local attempt
+
+    if [[ -r /proc/device-tree/model ]]; then
+        model="$(tr -d '\0' < /proc/device-tree/model)"
+    fi
+    if [[ "$model" != *"Raspberry Pi"* ]]; then
+        echo "The developer exception is available only on Raspberry Pi hardware." >&2
+        return 1
+    fi
+
+    if [[ -f "$developer_override_marker" ]]; then
+        developer_override=1
+        echo "Using the previously authorized Raspberry Pi developer installation."
+        return 0
+    fi
+
+    echo
+    echo "Raspberry Pi OS is not part of the standard Oracle MySQL installation path."
+    read -r -p "Are you a developer authorized to use the Raspberry Pi compatibility mode? [y/N]: " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || return 1
+
+    for attempt in 1 2 3; do
+        read -r -s -p "Developer password: " supplied_password
+        echo
+        supplied_hash="$(printf '%s' "$supplied_password" | sha256sum | awk '{print $1}')"
+        supplied_password=""
+        if [[ "$supplied_hash" == "$developer_password_sha256" ]]; then
+            install -d -o root -g root -m 700 "$(dirname "$developer_override_marker")"
+            printf '%s\n' "raspberry-pi-mariadb" > "$developer_override_marker"
+            chmod 600 "$developer_override_marker"
+            developer_override=1
+            echo "Developer authorization accepted."
+            return 0
+        fi
+        echo "Developer password was not accepted ($attempt/3)." >&2
+    done
+    return 1
+}
 
 retry() {
     local attempts="$1"
@@ -139,7 +188,7 @@ verify_apt_candidate() {
     local package="$1"
     local candidate
     candidate="$(apt-cache policy "$package" |
-        awk '/Candidate:/ {print $2; exit}')"
+        awk '/Candidate:/ && candidate == "" {candidate=$2} END {print candidate}')"
     if [[ -z "$candidate" || "$candidate" == "(none)" ]]; then
         echo "Ubuntu did not provide an installation candidate for '$package'." >&2
         echo "The configured release is ${UBUNTU_CODENAME:-${VERSION_CODENAME:-unknown}}." >&2
@@ -150,7 +199,7 @@ verify_apt_candidate() {
 has_apt_candidate() {
     local candidate
     candidate="$(apt-cache policy "$1" |
-        awk '/Candidate:/ {print $2; exit}')"
+        awk '/Candidate:/ && candidate == "" {candidate=$2} END {print candidate}')"
     [[ -n "$candidate" && "$candidate" != "(none)" ]]
 }
 
@@ -235,13 +284,19 @@ case "$(uname -s)" in
         fi
         # shellcheck disable=SC1091
         source /etc/os-release
-        if [[ "${ID:-}" != "ubuntu" && "${ID_LIKE:-}" != *ubuntu* ]]; then
+        if [[ "${ID:-}" == "ubuntu" || "${ID_LIKE:-}" == *ubuntu* ]]; then
+            if ! dpkg --compare-versions "${VERSION_ID:-0}" ge 20.04; then
+                echo "Ubuntu 20.04 or newer is required." >&2
+                exit 1
+            fi
+        elif [[ "${ID:-}" == "debian" || "${ID_LIKE:-}" == *debian* ]]; then
+            if ! authorize_raspberry_pi_override; then
+                echo "Developer authorization is required for Raspberry Pi OS." >&2
+                exit 1
+            fi
+        else
             echo "Automatic Linux installation currently supports Ubuntu 20.04 or newer." >&2
-            echo "Use macOS or Ubuntu so the installer can guarantee Oracle MySQL rather than MariaDB." >&2
-            exit 1
-        fi
-        if ! dpkg --compare-versions "${VERSION_ID:-0}" ge 20.04; then
-            echo "Ubuntu 20.04 or newer is required." >&2
+            echo "A developer-only compatibility exception is available on Raspberry Pi OS." >&2
             exit 1
         fi
         project_dir="/opt/plate-program"
@@ -297,9 +352,22 @@ else
     dpkg --configure -a || true
     repair_google_apt_key
     retry 4 5 apt_get update
+    if ((developer_override == 1)); then
+        database_server_package="mariadb-server"
+        database_client_package="mariadb-client"
+        database_service="mariadb"
+    else
+        database_server_package="mysql-server"
+        database_client_package="default-mysql-client"
+        database_service="mysql"
+    fi
     if ! has_apt_candidate python3 ||
-       ! has_apt_candidate mysql-server ||
-       ! has_apt_candidate default-mysql-client; then
+       ! has_apt_candidate "$database_server_package" ||
+       ! has_apt_candidate "$database_client_package"; then
+        if ((developer_override == 1)); then
+            echo "Required Raspberry Pi OS package indexes are missing." >&2
+            exit 1
+        fi
         echo "Required Ubuntu package indexes are missing; repairing Ubuntu sources..."
         ensure_official_ubuntu_sources
         retry 4 5 apt_get update
@@ -310,12 +378,12 @@ else
         retry 3 5 apt_get install -y --no-install-recommends "$@"
     }
     verify_apt_candidate python3
-    verify_apt_candidate mysql-server
-    verify_apt_candidate default-mysql-client
+    verify_apt_candidate "$database_server_package"
+    verify_apt_candidate "$database_client_package"
     apt_install \
         ca-certificates curl git openssl python3 \
-        mysql-server default-mysql-client
-    systemctl enable --now mysql
+        "$database_server_package" "$database_client_package"
+    systemctl enable --now "$database_service"
     python_command=python3
     if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
         install_python_311
@@ -345,7 +413,7 @@ fi
 
 env_file="$project_dir/.env"
 if ((refresh == 0)); then
-    echo "Waiting for MySQL to become ready..."
+    echo "Waiting for the SQL database to become ready..."
     mysql_ready=0
     for _ in {1..30}; do
         if mysqladmin ping --silent >/dev/null 2>&1 ||
@@ -356,7 +424,7 @@ if ((refresh == 0)); then
         sleep 1
     done
     if ((mysql_ready == 0)); then
-        echo "MySQL did not start. Start the installed MySQL service, then rerun this installer." >&2
+        echo "The SQL database did not start. Start its service, then rerun this installer." >&2
         exit 1
     fi
 
@@ -394,7 +462,7 @@ if ((refresh == 0)); then
 
     root_mysql <<SQL
 CREATE DATABASE IF NOT EXISTS plate_access_control
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'gatekeeper'@'127.0.0.1'
   IDENTIFIED BY '$database_password';
 ALTER USER 'gatekeeper'@'127.0.0.1'
@@ -456,7 +524,7 @@ if [[ "$platform" == "linux" ]]; then
 [Unit]
 Description=Plate Access Control Web Program
 Wants=network-online.target
-After=network-online.target mysql.service
+After=network-online.target ${database_service}.service
 
 [Service]
 Type=simple
@@ -536,7 +604,7 @@ if [[ "$platform" == "macos" ]]; then
         [[ -n "$local_ip" ]] && break
     done
 else
-    local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    local_ip="$(hostname -I 2>/dev/null | awk 'NR == 1 {print $1}')"
 fi
 
 echo
