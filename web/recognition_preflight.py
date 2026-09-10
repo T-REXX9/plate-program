@@ -10,16 +10,17 @@ from model_manifest import validate_model_manifest
 
 
 def run(manifest_path: Path) -> dict[str, str]:
-    models = validate_model_manifest(manifest_path)
+    assets = validate_model_manifest(manifest_path)
     try:
         import cv2
-        for role, path in models.items():
+        for role in ("detector", "recognizer"):
+            path = assets[role]
             network = cv2.dnn.readNet(str(path))
             if network.empty():
                 raise ValueError(f"The {role} model loaded empty: {path}")
     except ImportError as error:
         raise ValueError("OpenCV is not installed for recognition.") from error
-    return {role: str(path) for role, path in models.items()}
+    return {role: str(path) for role, path in assets.items()}
 
 
 if __name__ == "__main__":
@@ -31,7 +32,7 @@ if __name__ == "__main__":
     )
     arguments = parser.parse_args()
     try:
-        print(json.dumps({"status": "ok", "models": run(arguments.manifest)}))
+        print(json.dumps({"status": "ok", "assets": run(arguments.manifest)}))
     except ValueError as error:
         print(json.dumps({"status": "unavailable", "error": str(error)}))
         raise SystemExit(1)

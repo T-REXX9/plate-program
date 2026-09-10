@@ -13,5 +13,12 @@
     "version": "PP-OCRv5 mobile English",
     "path": "en_PP-OCRv5_rec_mobile.onnx",
     "sha256": "d32c148a69be1050c997294b1a1963eef6ec6b0fb8ae395656dbacdcd922356a"
+  },
+  "dictionary": {
+    "name": "en_PP-OCRv5_rec_mobile_dictionary",
+    "format": "utf-8-lines",
+    "version": "PP-OCRv5 mobile English",
+    "path": "en_dict.txt",
+    "sha256": "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
   }
 }
