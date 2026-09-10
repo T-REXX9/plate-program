@@ -7,3 +7,5 @@ database/web_secret.key
 database/reader_api.key
 __pycache__/
 *.py[cod]
+android-simulator/.gradle/
+android-simulator/app/build/
