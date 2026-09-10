@@ -20,6 +20,7 @@
   let controlsAvailable = false;
   let serialBusy = false;
   let cameraDiagnosticBusy = false;
+  let cameraConfigured = false;
   const setControlAvailability = () => {
     document.querySelectorAll(".diagnostic-command").forEach((button) => { button.disabled = !controlsAvailable; });
     const send = byId("serial-send");
@@ -28,11 +29,11 @@
   const setCameraDiagnosticAvailability = (system) => {
     const button = byId("camera-diagnostics-button");
     if (!button) return;
-    const configured = Boolean(system.camera_configured);
-    button.disabled = !configured || cameraDiagnosticBusy;
+    cameraConfigured = Boolean(system.camera_configured);
+    button.disabled = !cameraConfigured || cameraDiagnosticBusy;
     button.textContent = cameraDiagnosticBusy
       ? "Testing camera…"
-      : (configured ? "Test camera connection" : "Camera not configured");
+      : (cameraConfigured ? "Test camera connection" : "Camera not configured");
   };
   const terminalLine = (value = "") => {
     const terminal = byId("serial-terminal");
@@ -126,7 +127,7 @@
       notify(error.message || "The camera connectivity test failed.", "error");
     } finally {
       cameraDiagnosticBusy = false;
-      if (button) button.disabled = false;
+      if (button) button.disabled = !cameraConfigured;
       sync();
     }
   });
