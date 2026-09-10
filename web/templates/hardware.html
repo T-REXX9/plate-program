@@ -16,6 +16,20 @@
 
 {% if can_operate_gate %}
 {% set hardware_controls_available = system.controller_online and system.controller_type == 'plate' and system.gate_state != 'disabled' %}
+<section class="panel camera-diagnostics-panel">
+  <div class="panel-heading"><div><h2>Camera diagnostics</h2><p>Test server connectivity and capture one diagnostic frame. This does not create an access event or make a gate decision.</p></div><span id="camera-diagnostics-state" class="status">Not tested</span></div>
+  <div class="camera-diagnostics-body">
+    <input id="camera-diagnostics-csrf" type="hidden" value="{{ csrf_token() }}">
+    <button id="camera-diagnostics-button" class="primary-button" type="button" {{ 'disabled' if not system.camera_configured else '' }}>{{ 'Test camera connection' if system.camera_configured else 'Camera not configured' }}</button>
+    <div id="camera-diagnostics-result" class="camera-diagnostics-result" aria-live="polite">
+      <p id="camera-diagnostics-message">Capture a frame from the selected gate-bound camera to verify that the server can reach it.</p>
+      {% if camera_test_uid %}
+      <small>Latest diagnostic capture{% if camera_test_version %} · {{ camera_test_version }}{% endif %}</small>
+      <img src="{{ url_for('camera_test_frame', camera_uid=camera_test_uid) }}?v={{ camera_test_version }}" alt="Latest diagnostic camera frame">
+      {% endif %}
+    </div>
+  </div>
+</section>
 <section class="panel hardware-controls-panel">
   <div class="panel-heading"><div><h2>Manual controls</h2><p>{{ 'Protected gate equipment output tests' if system.controller_type == 'plate' else 'Unavailable for the RFID-only hardware' }}</p></div></div>
   <div class="hardware-warning"><strong>Keep the gate area clear.</strong><span>CLOSE is blocked whenever the IR safety beam is interrupted. Traffic-light tests automatically return to normal control after three seconds.</span></div>

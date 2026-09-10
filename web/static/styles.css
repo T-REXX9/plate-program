@@ -124,7 +124,6 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .primary-button:hover, .camera-toggle:hover { color: #fff; background: var(--primary-hover); transform: translateY(-1px); }
 .secondary-button { color: var(--ink); background: var(--white); border-color: var(--outline); }
 .secondary-button:hover { color: var(--primary); border-color: var(--primary); }
-.capture-button { min-width: 160px; }
 .link-button { padding: 0; border: 0; color: var(--primary); background: transparent; font-weight: 700; }
 .danger-text { color: var(--danger); }
 .text-link { font-weight: 700; }
@@ -139,10 +138,7 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .sync-status::before { width: 7px; height: 7px; border-radius: 50%; background: currentColor; content: ""; }
 .sync-status.error { color: var(--danger); }
 
-.dashboard-flow { display: grid; grid-template-columns: minmax(0, 2.05fr) minmax(300px, .95fr); grid-template-areas: "capture capture" "metrics metrics" "event system" "event activity" "recent recent"; gap: 18px; align-items: start; }
-.dashboard-capture-action { grid-area: capture; display: flex; justify-content: flex-end; }
-.camera-test-result { display: grid; gap: 6px; width: min(360px, 100%); margin-left: 14px; color: var(--muted); font-size: 11px; }
-.camera-test-result img { display: block; width: 100%; max-height: 180px; object-fit: contain; border-radius: 8px; background: var(--inverse); }
+.dashboard-flow { display: grid; grid-template-columns: minmax(0, 2.05fr) minmax(300px, .95fr); grid-template-areas: "metrics metrics" "event system" "event activity" "recent recent"; gap: 18px; align-items: start; }
 .metric-grid { grid-area: metrics; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
 .metric-card { position: relative; min-height: 138px; display: flex; flex-direction: column; justify-content: center; padding: 21px 24px; overflow: hidden; }
 .metric-card > span { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
@@ -153,6 +149,10 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .metric-card.danger::before { background: var(--danger); }
 .metric-card.accent::before { background: var(--primary); }
 .event-photo-panel { grid-area: event; }
+.camera-diagnostics-body { display: grid; gap: 14px; padding: 18px 20px; }
+.camera-diagnostics-result { display: grid; gap: 8px; color: var(--muted); }
+.camera-diagnostics-result p, .camera-diagnostics-result small { margin: 0; }
+.camera-diagnostics-result img { display: block; width: min(640px, 100%); max-height: 360px; object-fit: contain; border-radius: 10px; background: var(--inverse); }
 .system-panel { grid-area: system; }
 .activity-panel { grid-area: activity; }
 .recent-panel { grid-area: recent; }
@@ -359,10 +359,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
   .page-heading { align-items: center; margin-bottom: 16px; padding-bottom: 12px; }
   .page-heading h1 { font-size: 25px; }
   .page-heading > div:first-child > p:not(.eyebrow) { display: none; }
-  .dashboard-flow { display: grid; grid-template-columns: 1fr; grid-template-areas: "system" "event" "capture" "metrics" "activity" "recent"; gap: 14px; }
-  .dashboard-capture-action, .dashboard-capture-action form, .dashboard-capture-action .capture-button, .camera-test-result { width: 100%; }
-  .camera-test-result { margin: 14px 0 0; }
-  .dashboard-capture-action .capture-button { min-height: 52px; }
+  .dashboard-flow { display: grid; grid-template-columns: 1fr; grid-template-areas: "system" "event" "metrics" "activity" "recent"; gap: 14px; }
+  .camera-diagnostics-body, .camera-diagnostics-body #camera-diagnostics-button { width: 100%; }
+  .camera-diagnostics-body #camera-diagnostics-button { min-height: 52px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .metric-card { min-height: 112px; padding: 15px; }
   .metric-card strong { font-size: 31px; }

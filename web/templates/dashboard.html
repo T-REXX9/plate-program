@@ -24,22 +24,6 @@
     {% if network_summary.unassigned_controllers %}<a class="central-unassigned-warning" href="{{ url_for('sites') }}">⚠ {{ network_summary.unassigned_controllers }} legacy hardware unit awaiting a gate assignment</a>{% endif %}
   </section>
   {% endif %}
-  {% if can_operate_gate %}
-  <div class="dashboard-capture-action">
-    <form id="camera-capture-form" method="post" action="{{ url_for('camera_capture') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button id="camera-capture-button" class="primary-button capture-button" type="submit" {{ 'disabled' if not system.camera_configured else '' }}>
-        <span aria-hidden="true">◉</span>{{ 'Capture frame' if system.camera_configured else 'Camera not configured' }}
-      </button>
-    </form>
-    {% if camera_test_uid %}
-    <div id="camera-test-result" class="camera-test-result" aria-live="polite">
-      <small>Latest server capture · {{ camera_test_uid }}</small>
-      <img src="{{ url_for('camera_test_frame', camera_uid=camera_test_uid) }}?v={{ camera_test_version }}" alt="Latest test frame from {{ camera_test_uid }}">
-    </div>
-    {% endif %}
-  </div>
-  {% endif %}
   <section class="metric-grid" aria-label="Today’s summary">
     <article class="metric-card"><span>Active vehicles</span><strong id="metric-active-vehicles">{{ summary.active_vehicles }}</strong><small>Allowed registrations</small></article>
     <article class="metric-card accent"><span>Entries today</span><strong id="metric-events-today">{{ summary.events_today }}</strong><small>All access events</small></article>

@@ -207,35 +207,6 @@
     updateFrameSelector();
   }
 
-  function updateCaptureButton(system) {
-    const button = byId("camera-capture-button");
-    if (!button) return;
-    const unavailable = !system.camera_configured;
-    button.disabled = unavailable;
-    button.textContent = unavailable ? "Camera not configured" : "Capture frame";
-  }
-
-  function showCameraTestFrame(frameUrl, version) {
-    if (!frameUrl) return;
-    const action = document.querySelector(".dashboard-capture-action");
-    if (!action) return;
-    let result = byId("camera-test-result");
-    if (!result) {
-      result = document.createElement("div");
-      result.id = "camera-test-result";
-      result.className = "camera-test-result";
-      result.setAttribute("aria-live", "polite");
-      action.append(result);
-    }
-    result.replaceChildren();
-    const label = document.createElement("small");
-    label.textContent = "Latest server capture";
-    const image = document.createElement("img");
-    image.src = `${frameUrl}?v=${encodeURIComponent(version || Date.now())}`;
-    image.alt = "Latest server camera frame";
-    result.append(label, image);
-  }
-
   function updateRecent(events) {
     const body = byId("recent-events-body");
     if (!body) return;
@@ -342,7 +313,6 @@
     signal("traffic-lamp", "traffic-state", online ? (data.system.traffic_green ? "green" : "red") : "off", online ? (data.system.traffic_green ? "GO" : "STOP") : "Unknown");
     signal("plate-result-lamp", "plate-result-state", online ? (data.system.plate_unrecognized ? "red" : "green") : "off", online ? (data.system.plate_unrecognized ? "Not recognized" : "Ready") : "Unknown");
     text("hardware-updated", data.system.controller_seen_at || "Waiting for controller");
-    updateCaptureButton(data.system);
     updateLatest(data.latest_event, data.latest_timing);
     updateRecent(data.recent_events);
     updateDaily(data.daily);
@@ -351,33 +321,6 @@
   function schedule() {
     window.clearTimeout(timer);
     if (!document.hidden) timer = window.setTimeout(sync, POLL_INTERVAL_MS);
-  }
-
-  function setupCaptureForm() {
-    const form = byId("camera-capture-form");
-    const button = byId("camera-capture-button");
-    if (!form || !button) return;
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      button.disabled = true;
-      button.textContent = "Capturing…";
-      try {
-        const response = await fetch(form.action, {
-          method: "POST",
-          body: new FormData(form),
-          headers: { Accept: "application/json" },
-        });
-        const result = await response.json();
-        if (result.success) showCameraTestFrame(result.frame_url, result.frame_version);
-        showNotification(result.message, result.success ? "success" : "error");
-        await sync();
-      } catch (error) {
-        button.disabled = false;
-        button.textContent = "Capture plate";
-        showNotification("The capture request could not be sent.", "error");
-        console.warn(error);
-      }
-    });
   }
 
   function setupFrameSelector() {
@@ -422,7 +365,6 @@
     window.clearTimeout(timer);
     if (!document.hidden) sync();
   });
-  setupCaptureForm();
   setupFrameSelector();
   sync();
 })();

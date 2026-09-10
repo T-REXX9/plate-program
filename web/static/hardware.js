@@ -19,10 +19,20 @@
   };
   let controlsAvailable = false;
   let serialBusy = false;
+  let cameraDiagnosticBusy = false;
   const setControlAvailability = () => {
     document.querySelectorAll(".diagnostic-command").forEach((button) => { button.disabled = !controlsAvailable; });
     const send = byId("serial-send");
     if (send) send.disabled = !controlsAvailable || serialBusy;
+  };
+  const setCameraDiagnosticAvailability = (system) => {
+    const button = byId("camera-diagnostics-button");
+    if (!button) return;
+    const configured = Boolean(system.camera_configured);
+    button.disabled = !configured || cameraDiagnosticBusy;
+    button.textContent = cameraDiagnosticBusy
+      ? "Testing camera…"
+      : (configured ? "Test camera connection" : "Camera not configured");
   };
   const terminalLine = (value = "") => {
     const terminal = byId("serial-terminal");
@@ -53,6 +63,7 @@
     text("hardware-updated", system.controller_seen_at || "Waiting for controller");
     controlsAvailable = online && system.controller_type === "plate" && system.gate_state !== "disabled";
     setControlAvailability();
+    setCameraDiagnosticAvailability(system);
   };
   const sync = async () => {
     try {
@@ -69,6 +80,56 @@
       window.setTimeout(sync, 1000);
     }
   };
+  byId("camera-diagnostics-button")?.addEventListener("click", async () => {
+    if (cameraDiagnosticBusy) return;
+    const button = byId("camera-diagnostics-button");
+    const state = byId("camera-diagnostics-state");
+    const message = byId("camera-diagnostics-message");
+    const result = byId("camera-diagnostics-result");
+    cameraDiagnosticBusy = true;
+    if (button) button.disabled = true;
+    if (state) {
+      state.textContent = "Testing";
+      state.className = "status";
+    }
+    if (message) message.textContent = "The server is requesting one frame from the selected camera…";
+    try {
+      const body = new FormData();
+      body.append("csrf_token", byId("camera-diagnostics-csrf")?.value || "");
+      const response = await fetch("/camera/capture", {
+        method: "POST",
+        body,
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || `Status ${response.status}`);
+      if (state) {
+        state.textContent = "Connected";
+        state.className = "status authorized";
+      }
+      if (result) {
+        result.replaceChildren();
+        const label = document.createElement("small");
+        label.textContent = `Latest diagnostic capture · ${new Date(Number(payload.frame_version) * 1000).toLocaleString()}`;
+        const image = document.createElement("img");
+        image.src = `${payload.frame_url}?v=${encodeURIComponent(payload.frame_version || Date.now())}`;
+        image.alt = "Latest diagnostic camera frame";
+        result.append(label, image);
+      }
+      notify(payload.message, "success");
+    } catch (error) {
+      if (state) {
+        state.textContent = "Unavailable";
+        state.className = "status denied";
+      }
+      if (message) message.textContent = error.message || "The camera connectivity test failed. You can retry.";
+      notify(error.message || "The camera connectivity test failed.", "error");
+    } finally {
+      cameraDiagnosticBusy = false;
+      if (button) button.disabled = false;
+      sync();
+    }
+  });
   document.querySelectorAll(".diagnostic-command").forEach((button) => {
     button.addEventListener("click", async () => {
       if (!window.confirm(button.dataset.confirm || "Send this hardware command?")) return;
