@@ -1800,7 +1800,10 @@ def controller_access_result():
     event = connection.execute(
         """
         SELECT e.id, e.plate_number, e.rfid_number, e.decision, e.gate_action,
-               e.vehicle_id, e.annotated_image_path, j.status AS job_status
+               e.vehicle_id, e.annotated_image_path, j.status AS job_status,
+               CAST(TIMESTAMPDIFF(MICROSECOND, j.requested_at, j.started_at) / 1000 AS UNSIGNED) AS queue_ms,
+               CAST(TIMESTAMPDIFF(MICROSECOND, j.started_at, j.completed_at) / 1000 AS UNSIGNED) AS processing_ms,
+               CAST(TIMESTAMPDIFF(MICROSECOND, j.requested_at, j.completed_at) / 1000 AS UNSIGNED) AS server_total_ms
         FROM access_events e
         LEFT JOIN camera_capture_jobs j ON j.attempt_uid COLLATE utf8mb4_unicode_ci =
             e.attempt_uid COLLATE utf8mb4_unicode_ci
@@ -1834,6 +1837,11 @@ def controller_access_result():
         "rfid": event["rfid_number"],
         "gate_action": event["gate_action"],
         "annotated_image_available": bool(event["annotated_image_path"]),
+        "server_timing_ms": {
+            "queue": event["queue_ms"],
+            "processing": event["processing_ms"],
+            "total": event["server_total_ms"],
+        },
     }
 
 
