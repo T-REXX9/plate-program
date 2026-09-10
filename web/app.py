@@ -752,6 +752,8 @@ def request_value(name: str, default: str = "") -> str:
     """Read a scalar from form or JSON requests for hardware compatibility."""
     if name in request.form:
         return request.form.get(name, default)
+    if name in request.args:
+        return request.args.get(name, default)
     payload = request.get_json(silent=True)
     if isinstance(payload, dict) and name in payload:
         value = payload.get(name)
@@ -1848,6 +1850,43 @@ def controller_access_result():
             "total": event["server_total_ms"],
         },
     }
+
+
+@app.get("/api/controller/access-frame")
+def controller_access_frame():
+    """Return the annotated frame for one authenticated controller attempt."""
+    try:
+        controller_uid = request_controller_uid("unprovisioned-plate-controller")
+        attempt_uid = request_attempt_uid()
+    except ValueError as error:
+        return {"error": str(error)}, 400
+    if attempt_uid is None:
+        return {"error": "A capture attempt ID is required."}, 400
+    connection = get_db()
+    controller = ensure_controller(connection, controller_uid, "plate")
+    event = connection.execute(
+        """
+        SELECT annotated_image_path
+        FROM access_events
+        WHERE village_id = ? AND gate_id = ? AND controller_uid = ?
+          AND attempt_uid = ?
+        LIMIT 1
+        """,
+        (controller["village_id"], controller["gate_id"], controller_uid, attempt_uid),
+    ).fetchone()
+    if event is None or not event["annotated_image_path"]:
+        abort(404)
+    image_path = Path(event["annotated_image_path"])
+    if not image_path.is_absolute():
+        image_path = PROJECT_DIR / image_path
+    image_path = image_path.resolve()
+    try:
+        image_path.relative_to(PROJECT_DIR.resolve())
+    except ValueError:
+        abort(403)
+    if not image_path.is_file():
+        abort(404)
+    return send_file(image_path, mimetype="image/jpeg", max_age=0)
 
 
 @app.post("/api/internal/camera-jobs/<int:job_id>/recognition")

@@ -2,6 +2,7 @@ package com.gatekeeper.simulator;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -11,6 +12,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import org.json.JSONObject;
@@ -27,6 +29,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final StringBuilder timeline = new StringBuilder();
     private TextView gateLabel, sensorLabel, logLabel, resultLabel;
+    private ImageView frameView;
     private EditText server, controller, key, rfid, pollInterval, authTimeout, openingDelay, openHold, closingDelay, networkDelay;
     private SecureStore secureStore;
     private boolean automatic = true;
@@ -66,6 +69,7 @@ public final class MainActivity extends Activity {
         Button export = button("Export redacted timing timeline"); controls.addView(export); export.setOnClickListener(v -> exportTimeline());
         Button reset = button("Reset simulator"); controls.addView(reset); reset.setOnClickListener(v -> { attemptActive = false; state.reset(); timeline.setLength(0); record("RESET"); render(); });
         resultLabel = label("Server decision: pending", 16); root.addView(resultLabel);
+        root.addView(label("Latest annotated frame (server YOLO/OCR)", 18)); frameView = new ImageView(this); frameView.setAdjustViewBounds(true); frameView.setMinimumHeight(220); root.addView(frameView);
         root.addView(label("Timing timeline", 18)); logLabel = label("Ready. Configure a provisioned Plate + RFID controller.", 13); logLabel.setTextIsSelectable(true); root.addView(logLabel);
         setContentView(scroll); render();
     }
@@ -75,7 +79,8 @@ public final class MainActivity extends Activity {
     private void vehiclePresent() { if (state.gate != ControllerState.Gate.IDLE_CLOSED) { record("IGNORED loop present while " + state.gate); return; } state.loopActive = true; state.gate = ControllerState.Gate.WAITING_FOR_RFID; state.attemptUid = "sim-" + new SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", Locale.US).format(new Date()) + "-" + UUID.randomUUID().toString().substring(0,8); state.decision = "pending"; attemptActive = true; attemptStartedAt = System.currentTimeMillis(); final String attempt = state.attemptUid; record("SENSOR loop=vehicle_present; attempt=" + attempt); render(); runRequest("CAPTURE", () -> client().capture(attempt), r -> { record("HTTP capture " + r.code + " in " + r.elapsedMs + " ms; job=" + r.body.optString("job_id", "pending") + "; camera=" + r.body.optString("camera_id", "pending")); if (r.body.has("gate_id")) record("SERVER resolved village=" + r.body.optString("village_id", "") + "; gate=" + r.body.optString("gate_id", "")); if (r.body.has("annotated_image_available")) record("CAMERA annotated frame=" + r.body.optBoolean("annotated_image_available", false)); if (!attemptActive || !attempt.equals(state.attemptUid)) return; if (r.code < 200 || r.code >= 300) { record("CAPTURE failed; controller fails closed"); deny(new JSONObject()); return; } state.gate = ControllerState.Gate.RECOGNIZING; render(); pollAuthorization(attempt); }); }
     private void sendRfid() { String value = rfid.getText().toString().trim(); if (value.isEmpty() || !attemptActive || state.attemptUid.isEmpty()) { record("RFID ignored: enter RFID and start a vehicle attempt"); return; } final String attempt = state.attemptUid; runRequest("RFID", () -> client().rfid(attempt, value), r -> record("HTTP RFID " + r.code + " in " + r.elapsedMs + " ms; authorized=" + r.body.optBoolean("authorized", false))); }
     private void pollAuthorization() { pollAuthorization(state.attemptUid); }
-    private void pollAuthorization(String attempt) { if (!attemptActive || attempt.isEmpty() || !attempt.equals(state.attemptUid)) return; long timeout = millis(authTimeout, AUTHORIZATION_TIMEOUT_MS); if (System.currentTimeMillis() - attemptStartedAt >= timeout) { record("AUTHORIZATION timeout after " + timeout + " ms; controller fails closed"); deny(new JSONObject()); return; } runRequest("POLL", () -> client().accessResult(attempt), r -> { if (!attemptActive || !attempt.equals(state.attemptUid)) return; String status = r.body.optString("status", "unknown"); record("HTTP poll " + r.code + " in " + r.elapsedMs + " ms → " + status + timing(r.body)); if (r.body.has("plate")) record("RECOGNITION plate=" + r.body.optString("plate", "") + "; detector=" + r.body.opt("detector_confidence") + "; ocr=" + r.body.opt("ocr_confidence")); if (r.body.has("annotated_image_available")) record("CAMERA annotated frame=" + r.body.optBoolean("annotated_image_available", false)); if (r.code < 200 || r.code >= 300) deny(new JSONObject()); else if (status.equals("authorized")) authorize(r.body); else if (status.equals("denied")) deny(r.body); else main.postDelayed(() -> pollAuthorization(attempt), millis(pollInterval, 1000)); }); }
+    private void pollAuthorization(String attempt) { if (!attemptActive || attempt.isEmpty() || !attempt.equals(state.attemptUid)) return; long timeout = millis(authTimeout, AUTHORIZATION_TIMEOUT_MS); if (System.currentTimeMillis() - attemptStartedAt >= timeout) { record("AUTHORIZATION timeout after " + timeout + " ms; controller fails closed"); deny(new JSONObject()); return; } runRequest("POLL", () -> client().accessResult(attempt), r -> { if (!attemptActive || !attempt.equals(state.attemptUid)) return; String status = r.body.optString("status", "unknown"); record("HTTP poll " + r.code + " in " + r.elapsedMs + " ms → " + status + timing(r.body)); if (r.body.has("plate")) record("RECOGNITION plate=" + r.body.optString("plate", "") + "; detector=" + r.body.opt("detector_confidence") + "; ocr=" + r.body.opt("ocr_confidence")); if (r.body.has("annotated_image_available")) { boolean available = r.body.optBoolean("annotated_image_available", false); record("CAMERA annotated frame=" + available); if (available) loadFrame(attempt); } if (r.code < 200 || r.code >= 300) deny(new JSONObject()); else if (status.equals("authorized")) authorize(r.body); else if (status.equals("denied")) deny(r.body); else main.postDelayed(() -> pollAuthorization(attempt), millis(pollInterval, 1000)); }); }
+    private void loadFrame(String attempt) { network.execute(() -> { try { ServerClient.FrameResult frame = client().annotatedFrame(attempt); if (frame.code >= 200 && frame.code < 300 && frame.bytes.length > 0) main.post(() -> { frameView.setImageBitmap(BitmapFactory.decodeByteArray(frame.bytes, 0, frame.bytes.length)); record("CAMERA annotated frame fetched in " + frame.elapsedMs + " ms"); }); else main.post(() -> record("CAMERA annotated frame fetch returned HTTP " + frame.code + " in " + frame.elapsedMs + " ms")); } catch (Exception e) { main.post(() -> record("CAMERA frame fetch failed: " + e.getClass().getSimpleName())); } }); }
     private String timing(JSONObject body) { JSONObject t = body.optJSONObject("server_timing_ms"); return t == null ? "" : "; server queue=" + t.opt("queue") + " ms processing=" + t.opt("processing") + " ms total=" + t.opt("total") + " ms"; }
     private void authorize(JSONObject body) { attemptActive = false; state.decision = "authorized"; state.plate = body.optString("plate", ""); resultLabel.setText("Server decision: AUTHORIZED · " + state.plate); record("AUTHORIZATION authorized; simulated barrier sequence begins"); if (automatic) openingSequence(); else { state.gate = ControllerState.Gate.OPENING; render(); } }
     private void deny(JSONObject body) { attemptActive = false; state.decision = "denied"; state.gate = ControllerState.Gate.DENIED; resultLabel.setText("Server decision: DENIED"); record("AUTHORIZATION denied; barrier remains closed"); render(); }

@@ -4,6 +4,7 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.ByteArrayOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -14,6 +15,8 @@ import java.util.Map;
 public final class ServerClient {
     public static final class Result { public final int code; public final long elapsedMs; public final JSONObject body;
         Result(int code, long elapsedMs, JSONObject body) { this.code = code; this.elapsedMs = elapsedMs; this.body = body; } }
+    public static final class FrameResult { public final int code; public final long elapsedMs; public final byte[] bytes;
+        FrameResult(int code, long elapsedMs, byte[] bytes) { this.code = code; this.elapsedMs = elapsedMs; this.bytes = bytes; } }
     private final String baseUrl, controllerId, controllerKey;
     public ServerClient(String baseUrl, String controllerId, String controllerKey) {
         this.baseUrl = baseUrl.replaceAll("/+\\z", ""); this.controllerId = controllerId; this.controllerKey = controllerKey;
@@ -22,6 +25,17 @@ public final class ServerClient {
     public Result capture(String attempt) throws Exception { Map<String,String> f = new LinkedHashMap<>(); f.put("attempt_uid", attempt); return post("/api/controller/capture-request", f); }
     public Result rfid(String attempt, String value) throws Exception { Map<String,String> f = new LinkedHashMap<>(); f.put("attempt_uid", attempt); f.put("rfid", value); return post("/api/rfid-controller/recognitions", f); }
     public Result accessResult(String attempt) throws Exception { Map<String,String> f = new LinkedHashMap<>(); f.put("attempt_uid", attempt); return post("/api/controller/access-result", f); }
+    public FrameResult annotatedFrame(String attempt) throws Exception {
+        long start = System.nanoTime();
+        String query = "?controller_id=" + URLEncoder.encode(controllerId, "UTF-8") + "&attempt_uid=" + URLEncoder.encode(attempt, "UTF-8");
+        HttpURLConnection c = (HttpURLConnection) new URL(baseUrl + "/api/controller/access-frame" + query).openConnection();
+        c.setRequestMethod("GET"); c.setConnectTimeout(10000); c.setReadTimeout(20000);
+        c.setRequestProperty("Accept", "image/jpeg"); c.setRequestProperty("X-Controller-Key", controllerKey);
+        int code = c.getResponseCode(); InputStream stream = code >= 400 ? c.getErrorStream() : c.getInputStream();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        if (stream != null) { byte[] buffer = new byte[8192]; int read; while ((read = stream.read(buffer)) != -1) bytes.write(buffer, 0, read); stream.close(); }
+        return new FrameResult(code, (System.nanoTime() - start) / 1_000_000L, bytes.toByteArray());
+    }
     private Map<String,String> fields(ControllerState s) { Map<String,String> f = new LinkedHashMap<>(); f.put("gate_state", gateState(s)); f.put("rfid_connected", String.valueOf(s.rfidConnected)); f.put("loop_active", String.valueOf(s.loopActive)); f.put("ir_blocked", String.valueOf(s.irBlocked)); f.put("barrier_open", String.valueOf(s.barrierOpen)); f.put("traffic_green", String.valueOf(s.trafficGreen)); f.put("credential_unrecognized", "false"); return f; }
     private static String gateState(ControllerState s) { return s.gate.name().toLowerCase(); }
     private Result post(String path, Map<String,String> fields) throws Exception {
