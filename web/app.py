@@ -1801,7 +1801,8 @@ def controller_access_result():
     controller = ensure_controller(connection, controller_uid, "plate")
     event = connection.execute(
         """
-        SELECT e.id, e.plate_number, e.rfid_number, e.decision, e.gate_action,
+        SELECT e.id, e.plate_number, e.rfid_number, e.detector_confidence,
+               e.ocr_confidence, e.decision, e.gate_action,
                e.vehicle_id, e.annotated_image_path, j.status AS job_status,
                CAST(TIMESTAMPDIFF(MICROSECOND, j.requested_at, j.started_at) / 1000 AS UNSIGNED) AS queue_ms,
                CAST(TIMESTAMPDIFF(MICROSECOND, j.started_at, j.completed_at) / 1000 AS UNSIGNED) AS processing_ms,
@@ -1841,6 +1842,8 @@ def controller_access_result():
         "status": status,
         "authorized": status == "authorized",
         "plate": event["plate_number"],
+        "detector_confidence": event["detector_confidence"],
+        "ocr_confidence": event["ocr_confidence"],
         "rfid": event["rfid_number"],
         "gate_action": event["gate_action"],
         "annotated_image_available": bool(event["annotated_image_path"]),
