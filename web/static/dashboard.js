@@ -215,6 +215,27 @@
     button.textContent = unavailable ? "Camera not configured" : "Capture frame";
   }
 
+  function showCameraTestFrame(frameUrl, version) {
+    if (!frameUrl) return;
+    const action = document.querySelector(".dashboard-capture-action");
+    if (!action) return;
+    let result = byId("camera-test-result");
+    if (!result) {
+      result = document.createElement("div");
+      result.id = "camera-test-result";
+      result.className = "camera-test-result";
+      result.setAttribute("aria-live", "polite");
+      action.append(result);
+    }
+    result.replaceChildren();
+    const label = document.createElement("small");
+    label.textContent = "Latest server capture";
+    const image = document.createElement("img");
+    image.src = `${frameUrl}?v=${encodeURIComponent(version || Date.now())}`;
+    image.alt = "Latest server camera frame";
+    result.append(label, image);
+  }
+
   function updateRecent(events) {
     const body = byId("recent-events-body");
     if (!body) return;
@@ -347,6 +368,7 @@
           headers: { Accept: "application/json" },
         });
         const result = await response.json();
+        if (result.success) showCameraTestFrame(result.frame_url, result.frame_version);
         showNotification(result.message, result.success ? "success" : "error");
         await sync();
       } catch (error) {

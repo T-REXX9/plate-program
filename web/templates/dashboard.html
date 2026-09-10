@@ -33,7 +33,7 @@
       </button>
     </form>
     {% if camera_test_uid %}
-    <div class="camera-test-result" aria-live="polite">
+    <div id="camera-test-result" class="camera-test-result" aria-live="polite">
       <small>Latest server capture · {{ camera_test_uid }}</small>
       <img src="{{ url_for('camera_test_frame', camera_uid=camera_test_uid) }}?v={{ camera_test_version }}" alt="Latest test frame from {{ camera_test_uid }}">
     </div>

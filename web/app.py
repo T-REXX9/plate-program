@@ -3107,6 +3107,12 @@ def camera_capture():
             "success": success,
             "message": message,
             "camera_id": camera["camera_uid"],
+            "frame_url": (
+                url_for("camera_test_frame", camera_uid=camera["camera_uid"])
+                if success
+                else None
+            ),
+            "frame_version": session.get("camera_test_version") if success else None,
         }, 200 if success else 502
     flash(message, "success" if success else "error")
     return redirect(url_for("dashboard"))
