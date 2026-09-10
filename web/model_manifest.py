@@ -24,7 +24,7 @@ def validate_model_manifest(manifest_path: Path) -> dict[str, Path]:
         raise ValueError(f"Recognition model manifest could not be read: {error}") from error
 
     models: dict[str, Path] = {}
-    for role in ("detector", "recognizer"):
+    for role in ("detector", "recognizer", "dictionary"):
         entry = manifest.get(role)
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             raise ValueError(f"Recognition model manifest has no {role} model entry.")
