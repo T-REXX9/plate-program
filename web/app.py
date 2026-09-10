@@ -2905,6 +2905,7 @@ def load_dashboard_state() -> dict[str, Any]:
                DATE_FORMAT(controllers.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
                cameras.camera_uid AS camera_uid,
                cameras.transport AS camera_transport,
+               cameras.endpoint_url AS camera_endpoint_url,
                cameras.status AS camera_status,
                cameras.endpoint_url IS NOT NULL AS camera_configured,
                DATE_FORMAT(cameras.last_seen_at, '%Y-%m-%d %H:%i:%s') AS camera_last_seen_at,
@@ -3081,8 +3082,16 @@ def camera_capture():
             CameraConfig(camera["camera_uid"], camera["transport"], endpoint_url),
             timeout_seconds=10,
         )
+        detector_model = os.environ.get(
+            "PLATE_DETECTOR_MODEL", str(PROJECT_DIR / "models" / "license_plate_detector.onnx")
+        )
+        recognizer_model = os.environ.get(
+            "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "en_PP-OCRv5_rec_mobile.onnx")
+        )
+        recognition = recognize_frame(frame, detector_model, recognizer_model)
+        annotated_frame = encode_jpeg(recognition.annotated)
         stored_path = store_event_image(
-            "camera-tests", f"{camera['camera_uid']}.jpg", frame
+            "camera-tests", f"{camera['camera_uid']}.jpg", annotated_frame
         )
         if stored_path is None:
             raise CameraError("The captured frame could not be stored.")
