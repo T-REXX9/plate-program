@@ -265,7 +265,7 @@ capture request sequence as the NodeMCU. **Scan RFID now**, **Toggle IR safety
 beam**, **Vehicle leaves**, **Automatic gate progression**, and **Reset
 simulator**, **Network simulation**, and **Export redacted timing timeline**
 exercise the controller state machine. Timing defaults are 1,000 ms polling,
-10,000 ms authorization timeout, 1,200 ms opening, 3,000 ms open hold, and
+1,000 ms RFID retry interval, 10,000 ms authorization timeout, 1,200 ms opening, 3,000 ms open hold, and
 1,200 ms closing; all are editable in the app. All gate outputs are local
 simulation state; no physical barrier command is sent.
 
