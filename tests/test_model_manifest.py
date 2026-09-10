@@ -16,14 +16,11 @@ class ModelManifestTests(unittest.TestCase):
             root = Path(directory)
             detector = root / "detector.onnx"
             recognizer = root / "recognizer.onnx"
-            dictionary = root / "en_dict.txt"
             detector.write_bytes(b"detector")
             recognizer.write_bytes(b"recognizer")
-            dictionary.write_bytes(b"A\n")
             manifest = {
                 "detector": {"path": "detector.onnx", "sha256": hashlib.sha256(b"detector").hexdigest()},
                 "recognizer": {"path": "recognizer.onnx", "sha256": hashlib.sha256(b"recognizer").hexdigest()},
-                "dictionary": {"path": "en_dict.txt", "sha256": hashlib.sha256(b"A\n").hexdigest()},
             }
             manifest_path = root / "manifest.json"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -32,7 +29,7 @@ class ModelManifestTests(unittest.TestCase):
 
             self.assertEqual(
                 result,
-                {"detector": detector.resolve(), "recognizer": recognizer.resolve(), "dictionary": dictionary.resolve()},
+                {"detector": detector.resolve(), "recognizer": recognizer.resolve()},
             )
 
     def test_missing_artifact_is_rejected(self) -> None:

@@ -111,12 +111,10 @@
       if (result) {
         result.replaceChildren();
         const label = document.createElement("small");
-        const recognition = payload.recognition || {};
-        const plate = recognition.plate || "UNREADABLE";
-        label.textContent = `YOLO + OCR · ${plate} · detector ${Number(recognition.detector_confidence || 0).toFixed(2)} · OCR ${Number(recognition.ocr_confidence || 0).toFixed(2)} · ${new Date(Number(payload.frame_version) * 1000).toLocaleString()}`;
+        label.textContent = `Latest diagnostic capture · ${new Date(Number(payload.frame_version) * 1000).toLocaleString()}`;
         const image = document.createElement("img");
         image.src = `${payload.frame_url}?v=${encodeURIComponent(payload.frame_version || Date.now())}`;
-        image.alt = `Annotated diagnostic camera frame with detected plate ${plate}`;
+        image.alt = "Latest diagnostic camera frame";
         result.append(label, image);
       }
       notify(payload.message, "success");
