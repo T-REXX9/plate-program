@@ -1093,15 +1093,23 @@ def normalize_uid(value: str, label: str) -> str:
     return normalize_tenant_uid(value, label)
 
 
+def generated_uid(name: str, label: str) -> str:
+    """Create a readable technical ID from a user-facing name."""
+    candidate = re.sub(r"[^A-Za-z0-9]+", "-", name.strip().lower()).strip("-")
+    if not candidate:
+        raise ValueError(f"Enter a valid {label.lower()} name.")
+    return normalize_uid(candidate[:64].rstrip("-"), label)
+
+
 @app.post("/sites/villages")
 @role_required("administrator")
 def village_create():
+    name = " ".join(request.form.get("name", "").split())
     try:
-        village_uid = normalize_uid(request.form.get("village_uid", ""), "Village ID")
+        village_uid = normalize_uid(request.form.get("village_uid", ""), "Village ID") if request.form.get("village_uid", "").strip() else generated_uid(name, "Village ID")
     except ValueError as error:
         flash(str(error), "error")
         return redirect(url_for("sites"))
-    name = " ".join(request.form.get("name", "").split())
     timezone = request.form.get("timezone", "Asia/Manila").strip()
     if not 2 <= len(name) <= 160 or not re.fullmatch(r"[A-Za-z0-9_+./-]{1,64}", timezone):
         flash("Enter a valid village name and timezone.", "error")
@@ -1124,13 +1132,13 @@ def village_create():
 @app.post("/sites/gates")
 @role_required("administrator")
 def gate_create():
+    name = " ".join(request.form.get("name", "").split())
     try:
         village_id = int(request.form.get("village_id", "0"))
-        gate_uid = normalize_uid(request.form.get("gate_uid", ""), "Gate ID")
+        gate_uid = normalize_uid(request.form.get("gate_uid", ""), "Gate ID") if request.form.get("gate_uid", "").strip() else generated_uid(name, "Gate ID")
     except (ValueError, TypeError) as error:
         flash(str(error), "error")
         return redirect(url_for("sites"))
-    name = " ".join(request.form.get("name", "").split())
     direction = request.form.get("direction", "entry")
     if not 2 <= len(name) <= 160 or direction not in {"entry", "exit", "both"}:
         flash("Enter a valid gate name and direction.", "error")
@@ -1156,17 +1164,6 @@ def camera_configure(gate_id: int):
     display_name = " ".join(request.form.get("display_name", "").split())
     transport = request.form.get("transport", "rtsp").strip().lower()
     endpoint_url = request.form.get("endpoint_url", "").strip() or None
-    configured_endpoint = endpoint_url or os.environ.get(
-        camera_endpoint_env_name(camera_uid), ""
-    ).strip() or None
-    try:
-        validate_camera_config(CameraConfig(camera_uid, transport, configured_endpoint))
-    except ValueError as error:
-        flash(str(error), "error")
-        return redirect(url_for("sites"))
-    if not 2 <= len(display_name) <= 100:
-        flash("Enter a valid camera name.", "error")
-        return redirect(url_for("sites"))
     connection = get_db()
     gate = connection.execute(
         """
@@ -1178,6 +1175,21 @@ def camera_configure(gate_id: int):
     ).fetchone()
     if gate is None:
         flash("The selected gate does not exist.", "error")
+        return redirect(url_for("sites"))
+    if not camera_uid:
+        camera_uid = generated_uid(f"{gate['name']}-camera", "Camera ID")
+    if not display_name:
+        display_name = f"{gate['name']} Camera"
+    configured_endpoint = endpoint_url or os.environ.get(
+        camera_endpoint_env_name(camera_uid), ""
+    ).strip() or None
+    try:
+        validate_camera_config(CameraConfig(camera_uid, transport, configured_endpoint))
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("sites"))
+    if not 2 <= len(display_name) <= 100:
+        flash("Enter a valid camera name.", "error")
         return redirect(url_for("sites"))
     try:
         connection.execute(

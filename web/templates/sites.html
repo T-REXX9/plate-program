@@ -3,7 +3,7 @@
 {% block page_name %}Villages & Gates{% endblock %}
 {% block content %}
 <div class="page-heading compact-heading">
-  <div><p class="eyebrow">Setup Guide</p><h1>Platform Setup</h1><p>Follow these three steps to bring a new physical gate online.</p></div>
+  <div><p class="eyebrow">Simple setup</p><h1>Set up your gates</h1><p>Complete the steps from top to bottom. You can add more villages and gates later.</p></div>
 </div>
 
 {% if new_credential %}
@@ -15,37 +15,36 @@
 
 <div class="site-admin-grid">
   <section class="panel">
-    <div class="panel-heading"><div><h2>Step 1: Add a village</h2><p>Create the community first.</p></div></div>
+    <div class="panel-heading"><div><h2>1. Create a village</h2><p>A village is one community or property.</p></div><span class="setup-step">START HERE</span></div>
     <form class="stacked-form" method="post" action="{{ url_for('village_create') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>Village Name<input name="name" required maxlength="160" placeholder="e.g. Green Meadows"></label>
-      <label>Short ID (for URLs)<input name="village_uid" required maxlength="64" placeholder="e.g. green-meadows"></label>
-      <label>Timezone<input name="timezone" value="Asia/Manila" required maxlength="64"></label>
+      <label>What is the village called?<input name="name" required maxlength="160" placeholder="Example: Green Meadows" autofocus></label>
+      <details class="advanced-option"><summary>Advanced options</summary><label>Technical village ID<input name="village_uid" maxlength="64" placeholder="Leave blank to create automatically"></label><label>Timezone<input name="timezone" value="Asia/Manila" maxlength="64"></label></details>
       <button class="primary-button" type="submit">Create village</button>
     </form>
   </section>
 
   <section class="panel" style="opacity: {{ '1' if villages else '0.5' }};">
-    <div class="panel-heading"><div><h2>Step 2: Add a gate</h2><p>Add a physical entrance to the village.</p></div></div>
+    <div class="panel-heading"><div><h2>2. Add a gate</h2><p>A gate is one entrance or exit.</p></div><span class="setup-step">NEXT</span></div>
     <form class="stacked-form" method="post" action="{{ url_for('gate_create') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>Select Village<select name="village_id" required {% if not villages %}disabled{% endif %}>{% for village in villages %}<option value="{{ village.id }}">{{ village.name }}</option>{% endfor %}</select></label>
-      <label>Gate Name<input name="name" required maxlength="160" placeholder="e.g. Main Gate" {% if not villages %}disabled{% endif %}></label>
-      <label>Short ID<input name="gate_uid" required maxlength="64" placeholder="e.g. main-gate" {% if not villages %}disabled{% endif %}></label>
-      <label>Traffic Direction<select name="direction" {% if not villages %}disabled{% endif %}><option value="entry">Entry</option><option value="exit">Exit</option><option value="both">Entry and exit</option></select></label>
-      <button class="primary-button" type="submit" {% if not villages %}disabled{% endif %}>Create gate</button>
+      <label>Which village is this gate in?<select name="village_id" required {% if not villages %}disabled{% endif %}>{% for village in villages %}<option value="{{ village.id }}">{{ village.name }}</option>{% endfor %}</select></label>
+      <label>What should this gate be called?<input name="name" required maxlength="160" placeholder="Example: Main Gate" {% if not villages %}disabled{% endif %}></label>
+      <label>Does it allow vehicles to…?<select name="direction" {% if not villages %}disabled{% endif %}><option value="entry">Enter</option><option value="exit">Exit</option><option value="both">Enter and exit</option></select></label>
+      <details class="advanced-option"><summary>Advanced options</summary><label>Technical gate ID<input name="gate_uid" maxlength="64" placeholder="Leave blank to create automatically"></label></details>
+      <button class="primary-button" type="submit" {% if not villages %}disabled{% endif %}>Add this gate</button>
     </form>
   </section>
 
   <section class="panel" style="opacity: {{ '1' if gates else '0.5' }};">
-    <div class="panel-heading"><div><h2>Step 3: Connect hardware</h2><p>Generate a key for the gate equipment.</p></div></div>
+    <div class="panel-heading"><div><h2>3. Connect the controller</h2><p>Enter the ID printed or programmed on the controller at this gate.</p></div><span class="setup-step">LAST STEP</span></div>
     <form class="stacked-form" method="post" action="{{ url_for('controller_create') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>Select Gate<select name="gate_id" required {% if not gates %}disabled{% endif %}>{% for gate in gates %}<option value="{{ gate.id }}">{{ gate.village_name }} · {{ gate.name }}</option>{% endfor %}</select></label>
-      <label>Device Name<input name="display_name" required maxlength="100" placeholder="e.g. Main Gate Unit 1" {% if not gates %}disabled{% endif %}></label>
-      <label>Device ID<input name="controller_uid" required maxlength="64" placeholder="e.g. gate-unit-01" {% if not gates %}disabled{% endif %}></label>
-      <label>Device Type<select name="controller_type" {% if not gates %}disabled{% endif %}><option value="plate">Camera (Plate + RFID)</option><option value="rfid">RFID Reader only</option></select></label>
-      <button class="primary-button" type="submit" {% if not gates %}disabled{% endif %}>Generate device key</button>
+      <label>Which gate is this controller connected to?<select name="gate_id" required {% if not gates %}disabled{% endif %}>{% for gate in gates %}<option value="{{ gate.id }}">{{ gate.village_name }} — {{ gate.name }}</option>{% endfor %}</select></label>
+      <label>Give this controller a name<input name="display_name" required maxlength="100" placeholder="Example: Main Gate Controller" {% if not gates %}disabled{% endif %}></label>
+      <label>Controller ID<input name="controller_uid" required maxlength="64" placeholder="Enter the ID from the controller" {% if not gates %}disabled{% endif %}><small class="cell-note">This is the controller’s identity, not the camera name.</small></label>
+      <input type="hidden" name="controller_type" value="plate">
+      <button class="primary-button" type="submit" {% if not gates %}disabled{% endif %}>Connect controller</button>
     </form>
   </section>
 </div>
@@ -76,16 +75,15 @@
 </section>
 
 <section class="panel">
-  <div class="panel-heading"><div><h2>Bind cameras to gates</h2><p>The central server captures and recognizes plates. RTSP endpoints are captured over TCP; keep camera credentials protected.</p></div></div>
+  <div class="panel-heading"><div><h2>4. Connect each camera</h2><p>Choose a gate, paste its camera link, then test the picture. The server handles plate recognition.</p></div></div>
   {% for gate in gates %}
   <form class="stacked-form" method="post" action="{{ url_for('camera_configure', gate_id=gate.id) }}" style="margin-bottom: 1.5rem;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <p><strong>{{ gate.village_name }} · {{ gate.name }}</strong>{% if gate.camera_uid %}<small class="cell-note">Current camera: {{ gate.camera_uid }}</small>{% endif %}</p>
-    <label>Camera ID<input name="camera_uid" required maxlength="64" placeholder="e.g. village1-main-camera-01"></label>
-    <label>Display Name<input name="display_name" required maxlength="100" placeholder="e.g. Main Gate Camera"></label>
-    <label>Transport<select name="transport"><option value="rtsp"{% if gate.camera_transport == 'rtsp' %} selected{% endif %}>RTSP camera</option><option value="http_mjpeg"{% if gate.camera_transport == 'http_mjpeg' %} selected{% endif %}>HTTP/MJPEG camera</option><option value="agent"{% if gate.camera_transport == 'agent' %} selected{% endif %}>Camera agent</option></select></label>
-    <label>Endpoint URL<input name="endpoint_url" type="url" maxlength="1000" placeholder="rtsp://camera-private-address:554/stream1"><small class="cell-note">For RTSP, leave blank when using CAMERA_ENDPOINT_&lt;CAMERA_ID&gt; in the server environment. Do not commit credentials or paste them into chat.</small></label>
-    <button class="primary-button" type="submit">Bind camera to {{ gate.name }}</button>
+    <p><strong>{{ gate.village_name }} — {{ gate.name }}</strong>{% if gate.camera_uid %}<small class="cell-note">Camera already connected: {{ gate.camera_name }}</small>{% endif %}</p>
+    <label>Paste the camera link<input name="endpoint_url" type="url" maxlength="1000" placeholder="rtsp://username:password@camera-address:554/stream1"><small class="cell-note">Keep this link private. It is stored on the server and is never shown in the normal setup list.</small></label>
+    <label>Camera link type<select name="transport"><option value="rtsp"{% if gate.camera_transport == 'rtsp' %} selected{% endif %}>RTSP (most network cameras)</option><option value="http_mjpeg"{% if gate.camera_transport == 'http_mjpeg' %} selected{% endif %}>HTTP/MJPEG</option><option value="agent"{% if gate.camera_transport == 'agent' %} selected{% endif %}>Camera agent</option></select></label>
+    <details class="advanced-option"><summary>Advanced camera options</summary><label>Camera ID<input name="camera_uid" maxlength="64" placeholder="Leave blank to create automatically"></label><label>Camera display name<input name="display_name" maxlength="100" placeholder="Leave blank to use the gate name"></label></details>
+    <button class="primary-button" type="submit">Save camera and test it</button>
   </form>
   {% if gate.camera_uid %}
   <form method="post" action="{{ url_for('camera_test', gate_id=gate.id) }}" style="margin-top: -1rem; margin-bottom: 1.5rem;">
