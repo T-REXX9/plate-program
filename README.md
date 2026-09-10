@@ -237,6 +237,23 @@ Cloudflare or any public network. For the current LAN deployment, the camera
 endpoint is a private RTSP address reachable directly by the central server;
 Cloudflare Tunnel is optional and not required.
 
+To exercise this controller workflow from macOS without connecting hardware or
+moving the barrier, use the simulator. Provision a Plate + RFID controller
+first, then export its ID and private key:
+
+```bash
+export PLATE_SERVER_URL=https://server.example.com
+export PLATE_CONTROLLER_ID=your-controller-id
+export PLATE_CONTROLLER_KEY=your-controller-key
+# Optional: test the combined RFID path too.
+export PLATE_SIMULATOR_RFID=your-rfid-value
+bash tools/controller_simulator.sh
+```
+
+The simulator sends a heartbeat, requests a camera capture, optionally submits
+RFID, and polls the real authorization endpoint. It reports PASS or DENIED but
+never sends a barrier-open command.
+
 ## Mobile account integration readiness
 
 Plate Program includes a dormant, additive MySQL cache for future homeowner
