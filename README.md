@@ -263,8 +263,21 @@ of the web UI and Bash simulator. Enter the server URL, a provisioned Plate +
 RFID controller ID and key, then use **Vehicle present** to trigger the same
 capture request sequence as the NodeMCU. **Scan RFID now**, **Toggle IR safety
 beam**, **Vehicle leaves**, **Automatic gate progression**, and **Reset
-simulator** exercise the controller state machine. All gate outputs are local
+simulator**, **Network simulation**, and **Export redacted timing timeline**
+exercise the controller state machine. Timing defaults are 1,000 ms polling,
+10,000 ms authorization timeout, 1,200 ms opening, 3,000 ms open hold, and
+1,200 ms closing; all are editable in the app. All gate outputs are local
 simulation state; no physical barrier command is sent.
+
+To build the debug APK from a shell with Java 17 and Android SDK 35:
+
+```bash
+cd android-simulator
+JAVA_HOME=/path/to/jdk-17 /path/to/gradle --no-daemon assembleDebug
+```
+
+The resulting APK is `app/build/outputs/apk/debug/app-debug.apk`. The checked-in
+development build is also available at `Output/plate-controller-simulator-debug.apk`.
 
 ## Mobile account integration readiness
 
