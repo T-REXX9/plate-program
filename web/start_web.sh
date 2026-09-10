@@ -30,6 +30,7 @@ fi
 
 cd "$web_dir"
 echo "Admin website: http://0.0.0.0:8080"
+"$venv_dir/bin/python" "$web_dir/recognition_preflight.py"
 worker_pid=""
 web_pid=""
 startup_timeout="${PLATE_STARTUP_TIMEOUT_SECONDS:-120}"

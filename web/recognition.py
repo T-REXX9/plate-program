@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
+
+
+_MODEL_CACHE: dict[str, cv2.dnn.Net] = {}
 
 
 @dataclass(frozen=True)
@@ -21,14 +25,31 @@ def _clean_plate(value: str) -> str:
     return "".join(character for character in value.upper() if character.isalnum())
 
 
-def _paddle_character(index: int) -> str:
-    if 1 <= index <= 10:
-        return chr(ord("0") + index - 1)
-    if 11 <= index <= 36:
-        return chr(ord("A") + index - 11)
-    if 37 <= index <= 62:
-        return chr(ord("a") + index - 37)
-    return ""
+def _load_model(path: str) -> cv2.dnn.Net:
+    model_path = Path(path)
+    if not model_path.is_file():
+        raise ValueError(f"Recognition model is missing: {model_path}")
+    key = str(model_path.resolve())
+    network = _MODEL_CACHE.get(key)
+    if network is None:
+        network = cv2.dnn.readNet(key)
+        if network.empty():
+            raise ValueError(f"Recognition model loaded empty: {model_path}")
+        _MODEL_CACHE[key] = network
+    return network
+
+
+def _load_characters(path: str | None = None) -> tuple[str, ...]:
+    dictionary_path = Path(path or Path(__file__).resolve().parents[1] / "models" / "en_dict.txt")
+    try:
+        characters = tuple(dictionary_path.read_text(encoding="utf-8").splitlines())
+    except OSError as error:
+        raise ValueError(f"OCR character dictionary is missing: {dictionary_path}") from error
+    if not characters or any(len(character) != 1 for character in characters):
+        raise ValueError(f"OCR character dictionary is invalid: {dictionary_path}")
+    if characters[-1] != " ":
+        characters += (" ",)
+    return characters
 
 
 def _letterbox(frame: np.ndarray, size: int = 640):
@@ -76,7 +97,11 @@ def _detect_plates(detector: cv2.dnn.Net, frame: np.ndarray):
     return [(boxes[int(index)], scores[int(index)]) for index in kept]
 
 
-def _read_plate(recognizer: cv2.dnn.Net, crop: np.ndarray) -> tuple[str, float]:
+def _read_plate(
+    recognizer: cv2.dnn.Net,
+    crop: np.ndarray,
+    characters: tuple[str, ...],
+) -> tuple[str, float]:
     zoomed = cv2.resize(crop, (800, max(1, round(crop.shape[0] * 800 / crop.shape[1]))), interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(zoomed, cv2.COLOR_BGR2GRAY)
     band = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
@@ -87,9 +112,15 @@ def _read_plate(recognizer: cv2.dnn.Net, crop: np.ndarray) -> tuple[str, float]:
     padded[:, :width] = resized
     recognizer.setInput(cv2.dnn.blobFromImage(padded, 1.0, (320, 48)))
     output = recognizer.forward()
-    if output.ndim != 3 or output.shape[0] != 1:
+    if output.ndim != 3 or output.shape[0] != 1 or output.shape[2] != len(characters) + 1:
         return "UNREADABLE", 0.0
     probabilities = output[0]
+    if np.any(probabilities < 0) or not np.allclose(
+        probabilities.sum(axis=1), 1.0, atol=1e-3
+    ):
+        probabilities = probabilities - probabilities.max(axis=1, keepdims=True)
+        probabilities = np.exp(probabilities)
+        probabilities /= probabilities.sum(axis=1, keepdims=True)
     decoded: list[str] = []
     confidence = 0.0
     count = 0
@@ -97,8 +128,8 @@ def _read_plate(recognizer: cv2.dnn.Net, crop: np.ndarray) -> tuple[str, float]:
     for row in probabilities:
         index = int(np.argmax(row))
         if index != previous and index != 0:
-            character = _paddle_character(index)
-            if character:
+            if 1 <= index <= len(characters):
+                character = characters[index - 1]
                 decoded.append(character)
                 confidence += float(row[index])
                 count += 1
@@ -115,8 +146,9 @@ def recognize_frame(
     frame = cv2.imdecode(np.frombuffer(frame_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
     if frame is None or frame.size == 0:
         raise ValueError("The captured image is not a readable image.")
-    detector = cv2.dnn.readNet(detector_model)
-    recognizer = cv2.dnn.readNet(recognizer_model)
+    detector = _load_model(detector_model)
+    recognizer = _load_model(recognizer_model)
+    characters = _load_characters()
     detections = _detect_plates(detector, frame)
     annotated = frame.copy()
     if not detections:
@@ -124,7 +156,7 @@ def recognize_frame(
         return RecognitionResult("UNREADABLE", 0.0, 0.0, None, annotated)
     (left, top, width, height), detector_confidence = max(detections, key=lambda item: item[1])
     crop = frame[top:top + height, left:left + width].copy()
-    plate, ocr_confidence = _read_plate(recognizer, crop)
+    plate, ocr_confidence = _read_plate(recognizer, crop, characters)
     color = (0, 200, 255) if plate != "UNREADABLE" else (0, 0, 180)
     cv2.rectangle(annotated, (left, top), (left + width, top + height), color, 3)
     cv2.putText(annotated, plate, (left, max(32, top - 10)), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)

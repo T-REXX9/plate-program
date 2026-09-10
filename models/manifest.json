@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "detector": {
+    "name": "license_plate_detector",
+    "format": "onnx",
+    "version": "pytorch-export-2.13.0",
+    "path": "license_plate_detector.onnx",
+    "sha256": "ac1dce629f754e27c9a43d6130d8943194fc4a2c530c02c9a1def65896be9677"
+  },
+  "recognizer": {
+    "name": "en_PP-OCRv5_rec_mobile",
+    "format": "onnx",
+    "version": "PP-OCRv5 mobile English",
+    "path": "en_PP-OCRv5_rec_mobile.onnx",
+    "sha256": "d32c148a69be1050c997294b1a1963eef6ec6b0fb8ae395656dbacdcd922356a"
+  }
+}

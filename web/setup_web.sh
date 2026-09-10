@@ -36,4 +36,6 @@ fi
     --retries 5 --timeout 60
 echo "$platform_id" > "$platform_file"
 
+"$venv_dir/bin/python" "$web_dir/recognition_preflight.py"
+
 echo "Website environment ready."
