@@ -254,6 +254,18 @@ The simulator sends a heartbeat, requests a camera capture, optionally submits
 RFID, and polls the real authorization endpoint. It reports PASS or DENIED but
 never sends a barrier-open command.
 
+## Standalone Android controller simulator
+
+The standalone Android simulator is in `android-simulator/`. Open that
+directory in Android Studio, let Gradle sync, select an Android 8.0 or newer
+device/emulator, and run the `app` configuration. The simulator is independent
+of the web UI and Bash simulator. Enter the server URL, a provisioned Plate +
+RFID controller ID and key, then use **Vehicle present** to trigger the same
+capture request sequence as the NodeMCU. **Scan RFID now**, **Toggle IR safety
+beam**, **Vehicle leaves**, **Automatic gate progression**, and **Reset
+simulator** exercise the controller state machine. All gate outputs are local
+simulation state; no physical barrier command is sent.
+
 ## Mobile account integration readiness
 
 Plate Program includes a dormant, additive MySQL cache for future homeowner
