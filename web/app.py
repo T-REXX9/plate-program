@@ -1257,9 +1257,23 @@ def camera_test(gate_id: int):
 
 
 @app.get("/sites/cameras/<camera_uid>/test-frame")
-@role_required("administrator")
+@tenant_role_required("village_admin", "security_guard")
 def camera_test_frame(camera_uid: str):
     camera_uid = validate_camera_uid(camera_uid)
+    connection = get_db()
+    camera = connection.execute(
+        """
+        SELECT cameras.camera_uid
+        FROM cameras
+        JOIN gates ON gates.id = cameras.gate_id
+        WHERE cameras.camera_uid = ? AND cameras.is_active = 1
+          AND gates.is_active = 1 AND gates.village_id = ?
+        LIMIT 1
+        """,
+        (camera_uid, selected_village_id(connection) or 0),
+    ).fetchone()
+    if camera is None:
+        abort(404)
     frame_path = OUTPUT_DIR / "camera-tests" / f"{camera_uid}.jpg"
     if not frame_path.is_file():
         abort(404)
