@@ -233,6 +233,22 @@ CREATE TABLE IF NOT EXISTS users (
     CONSTRAINT chk_users_active CHECK (is_active IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS households (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    village_id BIGINT UNSIGNED NOT NULL,
+    household_uid VARCHAR(64) NOT NULL,
+    name VARCHAR(160) NOT NULL,
+    address VARCHAR(500) NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_households_village_uid (village_id, household_uid),
+    UNIQUE KEY uq_households_village_id (village_id, id),
+    CONSTRAINT fk_households_village FOREIGN KEY (village_id)
+        REFERENCES villages(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS user_village_roles (
     user_id BIGINT UNSIGNED NOT NULL,
     village_id BIGINT UNSIGNED NOT NULL,
@@ -258,22 +274,6 @@ CREATE TABLE IF NOT EXISTS user_gate_assignments (
     KEY idx_user_gate_assignment_scope (user_id, village_id, gate_id),
     CONSTRAINT fk_user_gate_assignments_user FOREIGN KEY (user_id)
         REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS households (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    village_id BIGINT UNSIGNED NOT NULL,
-    household_uid VARCHAR(64) NOT NULL,
-    name VARCHAR(160) NOT NULL,
-    address VARCHAR(500) NULL,
-    is_active TINYINT(1) NOT NULL DEFAULT 1,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_households_village_uid (village_id, household_uid),
-    UNIQUE KEY uq_households_village_id (village_id, id),
-    CONSTRAINT fk_households_village FOREIGN KEY (village_id)
-        REFERENCES villages(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS subscriptions (
