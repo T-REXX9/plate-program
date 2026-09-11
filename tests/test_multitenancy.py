@@ -10,12 +10,18 @@ sys.path.insert(0, str(PROJECT_DIR / "web"))
 
 from tenancy import (  # noqa: E402
     controller_key_digest,
+    generate_controller_key,
     matching_credential_id,
     normalize_tenant_uid,
 )
 
 
 class ControllerCredentialTests(unittest.TestCase):
+    def test_generated_controller_key_is_exactly_ten_digits(self) -> None:
+        for _ in range(20):
+            key = generate_controller_key()
+            self.assertRegex(key, r"^\d{10}$")
+
     def test_controller_key_is_stored_as_a_digest(self) -> None:
         digest = controller_key_digest("secret-controller-key")
         self.assertEqual(len(digest), 64)

@@ -45,7 +45,12 @@ from camera import (
     validate_camera_config,
     validate_camera_uid,
 )
-from tenancy import controller_key_digest, matching_credential_id, normalize_tenant_uid
+from tenancy import (
+    controller_key_digest,
+    generate_controller_key,
+    matching_credential_id,
+    normalize_tenant_uid,
+)
 from recognition import encode_jpeg, recognize_frame
 
 
@@ -1317,7 +1322,7 @@ def controller_create():
     if not 2 <= len(display_name) <= 100 or controller_type not in {"plate", "rfid"}:
         flash("Enter a valid controller name and type.", "error")
         return redirect(url_for("sites"))
-    controller_key = secrets.token_urlsafe(32)
+    controller_key = generate_controller_key()
     credential_hash = controller_key_digest(controller_key)
     try:
         connection = get_db()
@@ -1384,7 +1389,7 @@ def controller_assign(controller_uid: str):
     if controller["gate_id"] == gate_id:
         flash("That controller is already assigned to the selected gate.", "error")
         return redirect(url_for("sites"))
-    new_key = secrets.token_urlsafe(32)
+    new_key = generate_controller_key()
     connection.execute("START TRANSACTION")
     connection.execute(
         """
@@ -1520,7 +1525,7 @@ def controller_rotate_key(controller_uid: str):
     ).fetchone()
     if exists is None:
         abort(404)
-    new_key = secrets.token_urlsafe(32)
+    new_key = generate_controller_key()
     connection.execute(
         """
         UPDATE controller_credentials SET revoked_at = CURRENT_TIMESTAMP
