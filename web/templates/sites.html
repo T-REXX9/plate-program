@@ -14,20 +14,8 @@
 {% endif %}
 
 <div class="site-admin-grid">
-  {% if not villages %}<section class="panel">
-    <div class="panel-heading"><div><h2>1. Create the village</h2><p>This server supports one village.</p></div><span class="setup-step">START HERE</span></div>
-    <form class="stacked-form" method="post" action="{{ url_for('village_create') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>What is the village called?<input name="name" required maxlength="160" placeholder="Example: Green Meadows" autofocus></label>
-      <details class="advanced-option"><summary>Advanced options</summary><label>Technical village ID<input name="village_uid" maxlength="64" placeholder="Leave blank to create automatically"></label><label>Timezone<input name="timezone" value="Asia/Manila" maxlength="64"></label></details>
-      <button class="primary-button" type="submit">Create village</button>
-    </form>
-  </section>{% else %}<section class="panel">
-    <div class="panel-heading"><div><h2>1. Village configured</h2><p><strong>{{ villages[0].name }}</strong> is the fixed village for this server.</p></div><span class="status authorized">READY</span></div>
-  </section>{% endif %}
-
   <section class="panel" style="opacity: {{ '1' if villages else '0.5' }};">
-    <div class="panel-heading"><div><h2>2. Add a gate</h2><p>A gate is one entrance or exit.</p></div><span class="setup-step">NEXT</span></div>
+    <div class="panel-heading"><div><h2>1. Add a gate</h2><p>A gate is one entrance or exit.</p></div><span class="setup-step">START HERE</span></div>
     <form class="stacked-form" method="post" action="{{ url_for('gate_create') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="village_id" value="{{ villages[0].id if villages else 0 }}">
@@ -39,7 +27,7 @@
   </section>
 
   <section class="panel" style="opacity: {{ '1' if gates else '0.5' }};">
-    <div class="panel-heading"><div><h2>3. Connect the controller</h2><p>Enter the ID printed or programmed on the controller at this gate.</p></div><span class="setup-step">LAST STEP</span></div>
+    <div class="panel-heading"><div><h2>2. Connect the controller</h2><p>Enter the ID printed or programmed on the controller at this gate.</p></div><span class="setup-step">NEXT</span></div>
     <form class="stacked-form" method="post" action="{{ url_for('controller_create') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Which gate is this controller connected to?<select name="gate_id" required {% if not gates %}disabled{% endif %}>{% for gate in gates %}<option value="{{ gate.id }}">{{ gate.village_name }} — {{ gate.name }}</option>{% endfor %}</select></label>
@@ -69,7 +57,7 @@
 </section>
 
 <section class="panel">
-  <div class="panel-heading"><div><h2>4. Connect each camera</h2><p>Choose a gate, paste its camera link, then test the picture. The server handles plate recognition.</p></div></div>
+  <div class="panel-heading"><div><h2>3. Connect each camera</h2><p>Choose a gate, paste its camera link, then test the picture. The server handles plate recognition.</p></div><span class="setup-step">LAST STEP</span></div>
   {% for gate in gates %}
   <form class="stacked-form" method="post" action="{{ url_for('camera_configure', gate_id=gate.id) }}" style="margin-bottom: 1.5rem;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -127,6 +127,10 @@ class MultiTenantSchemaContractTests(unittest.TestCase):
         self.assertIn("Gates & Devices", base)
         self.assertIn("Gates & Devices", sites)
         self.assertNotIn("Manage Village", sites)
+        self.assertNotIn("1. Village configured", sites)
+        self.assertIn("1. Add a gate", sites)
+        self.assertIn("2. Connect the controller", sites)
+        self.assertIn("3. Connect each camera", sites)
 
 
 class CrossVillageIsolationTests(unittest.TestCase):
