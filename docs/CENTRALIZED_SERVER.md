@@ -25,7 +25,7 @@ requests cannot select or override their village.
 
 1. Install and start Plate Program.
 2. Create the first central administrator and sign in.
-3. Open **Villages & Gates**.
+3. Open **Gates & Devices**.
 4. Create a village using a permanent ID such as `village-a`.
 5. Create its physical gates using permanent IDs such as
    `village-a-north-entry`.
@@ -73,7 +73,7 @@ reference only. It is not part of the production path.
 
 ### Camera binding and local RTSP
 
-Open **Villages & Gates**, bind one camera ID to each gate, and select its
+Open **Gates & Devices**, bind one camera ID to each gate, and select its
 transport. For a network camera, the central camera worker must be able to
 reach the endpoint. RTSP capture forces RTSP-over-TCP and the worker submits
 the annotated result back to the server.

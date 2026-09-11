@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Villages & Gates · Gatekeeper Central{% endblock %}
-{% block page_name %}Villages & Gates{% endblock %}
+{% block title %}Gates & Devices · Gatekeeper Central{% endblock %}
+{% block page_name %}Gates & Devices{% endblock %}
 {% block content %}
 <div class="page-heading compact-heading">
-  <div><p class="eyebrow">Simple setup</p><h1>Set up your gates</h1><p>One server manages one village. Add as many gates, cameras, and controllers as this village needs.</p></div>
+  <div><p class="eyebrow">Installation</p><h1>Gates & Devices</h1><p>Manage this village’s gates, cameras, and controllers from one place.</p></div>
 </div>
 
 {% if new_credential %}
@@ -59,14 +59,6 @@
   </tbody></table></div>
 </section>
 {% endif %}
-
-<section class="panel">
-  <div class="panel-heading"><div><h2>Manage Village</h2><p>Disabling the village immediately blocks all of its gates and hardware.</p></div></div>
-  <div class="table-wrap"><table><thead><tr><th>Village Name</th><th>Total Gates</th><th>Total Hardware</th><th>Status</th><th>Action</th></tr></thead><tbody>
-  {% for village in villages %}<tr><td><strong>{{ village.name }}</strong><small class="cell-note">{{ village.village_uid }}</small></td><td>{{ village.gate_count }}</td><td>{{ village.controller_count }}</td><td><span class="status {{ 'authorized' if village.is_active else 'inactive' }}">{{ 'Active' if village.is_active else 'Disabled' }}</span></td><td><form method="post" action="{{ url_for('village_toggle', village_id=village.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link-button" type="submit">{{ 'Disable' if village.is_active else 'Enable' }}</button></form></td></tr>
-  {% else %}<tr><td colspan="5"><div class="empty-state"><strong>No villages yet</strong><span>Start by creating your first village above.</span></div></td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
 
 <section class="panel">
   <div class="panel-heading"><div><h2>Manage Gates</h2><p>Physical entrances and exits inside this village.</p></div></div>

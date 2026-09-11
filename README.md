@@ -59,7 +59,7 @@ Vehicles, RFID stickers, events, commands, and guard access remain village-scope
 for data integrity. Events retain their village, gate, and controller ownership
 as historical facts even if names later change.
 
-After the first administrator signs in, open **Villages & Gates** and create, in
+After the first administrator signs in, open **Gates & Devices** and create, in
 order:
 
 1. the village (once per server);
@@ -218,7 +218,7 @@ Edit `.env` and set `MYSQL_PASSWORD` to the password used above. Then run:
 Open `http://localhost:8080`. Other devices on the same local network can open
 `http://PC_IP_ADDRESS:8080`.
 
-Sign in as the administrator and open **Villages & Gates** before connecting
+Sign in as the administrator and open **Gates & Devices** before connecting
 hardware. A controller cannot self-register and is intentionally rejected until
 it has been provisioned to a gate.
 

@@ -12,7 +12,7 @@
       <p class="eyebrow">Centralized server</p>
       <h1>{{ 'Set up your first installation' if network_summary.villages == 0 else 'All installations' }}</h1>
       <p>{% if network_summary.villages == 0 %}Create a village, add each physical gate, then provision its connected gate equipment. The server permanently binds every hardware unit to that gate and village.{% else %}This server separates every village while letting you switch to any gate hardware from the header.{% endif %}</p>
-      <a class="primary-button" href="{{ url_for('sites') }}">{{ 'Start centralized setup' if network_summary.villages == 0 else 'Manage villages & gates' }}</a>
+      <a class="primary-button" href="{{ url_for('sites') }}">{{ 'Set up village' if network_summary.villages == 0 else 'Manage gates & devices' }}</a>
     </div>
     <div class="central-network-metrics" aria-label="Central network summary">
       <div><strong>{{ network_summary.villages }}</strong><span>Villages</span></div>

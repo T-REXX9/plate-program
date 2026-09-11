@@ -121,6 +121,13 @@ class MultiTenantSchemaContractTests(unittest.TestCase):
         self.assertIn("This server already has its village configured", mobile_source)
         self.assertIn("village switching is disabled", app_source)
 
+    def test_setup_page_uses_fixed_village_gates_and_devices_label(self) -> None:
+        base = (PROJECT_DIR / "web" / "templates" / "base.html").read_text(encoding="utf-8")
+        sites = (PROJECT_DIR / "web" / "templates" / "sites.html").read_text(encoding="utf-8")
+        self.assertIn("Gates & Devices", base)
+        self.assertIn("Gates & Devices", sites)
+        self.assertNotIn("Manage Village", sites)
+
 
 class CrossVillageIsolationTests(unittest.TestCase):
     @classmethod

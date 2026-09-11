@@ -60,7 +60,7 @@
       <a class="nav-item {{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}"><span class="nav-symbol" aria-hidden="true">▦</span><span>Overview</span></a>
       <a class="nav-item {{ 'active' if request.endpoint in ['hardware', 'hardware_command'] else '' }}" href="{{ url_for('hardware') }}"><span class="nav-symbol" aria-hidden="true">⌁</span><span>Hardware</span></a>
       {% if is_system_owner %}
-      <a class="nav-item {{ 'active' if request.endpoint in ['sites', 'village_create', 'gate_create', 'controller_create', 'controller_assign'] else '' }}" href="{{ url_for('sites') }}"><span class="nav-symbol" aria-hidden="true">⌂</span><span>Villages & Gates</span></a>
+      <a class="nav-item {{ 'active' if request.endpoint in ['sites', 'village_create', 'gate_create', 'controller_create', 'controller_assign'] else '' }}" href="{{ url_for('sites') }}"><span class="nav-symbol" aria-hidden="true">⌂</span><span>Gates & Devices</span></a>
       {% endif %}
       {% if can_manage_tenant %}
       <a class="nav-item {{ 'active' if request.endpoint in ['vehicles', 'vehicle_new', 'vehicle_edit'] else '' }}" href="{{ url_for('vehicles') }}"><span class="nav-symbol" aria-hidden="true">▰</span><span>Vehicles</span></a>
