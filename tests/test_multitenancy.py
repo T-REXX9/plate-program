@@ -114,6 +114,13 @@ class MultiTenantSchemaContractTests(unittest.TestCase):
             controllers,
         )
 
+    def test_single_village_creation_is_guarded_in_web_and_mobile_apis(self) -> None:
+        app_source = (PROJECT_DIR / "web" / "app.py").read_text(encoding="utf-8")
+        mobile_source = (PROJECT_DIR / "web" / "mobile_routes.py").read_text(encoding="utf-8")
+        self.assertIn("This server already has its village configured", app_source)
+        self.assertIn("This server already has its village configured", mobile_source)
+        self.assertIn("village switching is disabled", app_source)
+
 
 class CrossVillageIsolationTests(unittest.TestCase):
     @classmethod

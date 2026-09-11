@@ -3,14 +3,19 @@
 ## Authoritative hierarchy
 
 ```text
-Village
-└── Gate
-    ├── Camera (one camera bound to each gate)
-    └── NodeMCU controller
-        ├── Inductive loop, RFID, gate safety, and relays
-        ├── Capture requests and authorization polling
-        └── Heartbeats and hardware state
+Server installation
+└── One village
+    └── Gate
+        ├── Camera (one camera bound to each gate)
+        └── NodeMCU controller
+            ├── Inductive loop, RFID, gate safety, and relays
+            ├── Capture requests and authorization polling
+            └── Heartbeats and hardware state
 ```
+
+Each server installation supports exactly one village and multiple gates. The
+existing village-scoped tables and historical IDs remain for data integrity;
+web and mobile APIs reject creation of a second village.
 
 A controller stores only its stable controller ID and secret key. The server
 uses that authenticated identity to resolve the gate and village. Controller
@@ -28,8 +33,8 @@ requests cannot select or override their village.
 7. Copy the displayed controller ID and controller key immediately. The key is
    shown once; MySQL stores only its one-way digest.
 8. Put those two values in the controller's private configuration.
-9. Register that village's vehicles and RFID stickers after selecting the
-   correct village in the website header.
+9. Register that village's vehicles and RFID stickers. The village is fixed for
+   this server and is shown in the website header without a switcher.
 
 For the current all-local deployment, configure the NodeMCU's Plate Program
 base URL to the server's LAN address, for example `http://192.168.0.10:8080`.
@@ -44,7 +49,8 @@ worker environment as `CAMERA_ENDPOINT_<CAMERA_ID>`, uppercasing the ID and
 replacing `.`, `-`, and `:` with `_`. This keeps the camera password out of the
 database and source control.
 
-Repeat steps 4–9 for every subdivision or village.
+Repeat the gate, controller, camera, and registration steps for every gate in
+this village.
 
 ## Controller types
 

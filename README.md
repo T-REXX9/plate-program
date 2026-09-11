@@ -1,8 +1,8 @@
 # Plate Access Control Web Server
 
-This repository is the centralized Gatekeeper server: one native MySQL database,
-authenticated controller API, server-owned camera/plate recognition, and an
-administration dashboard for multiple villages, subdivisions, and gates. ESP8266
+This repository is the centralized Gatekeeper server for one village: one native
+MySQL database, authenticated controller API, server-owned camera/plate
+recognition, and an administration dashboard for multiple gates. ESP8266
 NodeMCU controllers remain focused on sensors, RFID acquisition, gate safety, and
 barrier control.
 
@@ -47,23 +47,22 @@ for example `3045673030553F9030553F90`.
     field and never transmit until the administrator confirms Send. The lane
     should remain clear during this test.
 
-## Multi-village ownership model
+## Single-village ownership model
 
-The hierarchy is strict: a village has one or more gates, and every controller
+Each server installation has exactly one village. The hierarchy is strict: that village has one or more gates, and every controller
 is provisioned to exactly one gate. The server resolves the authenticated
 controller credential to `controller -> gate -> village`; it never trusts a
 village or gate ID submitted by controller hardware. An unprovisioned controller,
 an invalid key, a revoked key, an inactive gate, or an inactive village is rejected.
 
-Vehicles, RFID stickers, events, commands, and guard access are village-scoped.
-The same plate or RFID value may exist independently in two villages without one
-village authorizing or viewing the other's record. Events retain their village,
-gate, and controller ownership as historical facts even if names later change.
+Vehicles, RFID stickers, events, commands, and guard access remain village-scoped
+for data integrity. Events retain their village, gate, and controller ownership
+as historical facts even if names later change.
 
 After the first administrator signs in, open **Villages & Gates** and create, in
 order:
 
-1. the village;
+1. the village (once per server);
 2. each physical gate;
 3. each Plate + RFID or RFID-only controller.
 
@@ -72,9 +71,8 @@ key in that controller's private configuration. Only a SHA-256 digest is stored
 in MySQL. Every controller request sends the ID plus the key using the
 `X-Controller-Key` header (or `controller_key` form field).
 
-The village selector changes the active tenant. The controller selector then
-changes the live gate, latest event, counters, activity, access log, and hardware
-command target within that village.
+The village is fixed for the server. The controller selector changes the live
+gate, latest event, counters, activity, access log, and hardware command target.
 
 When the latest event is denied, administrators can register its detected plate
 or RFID directly from the Overview. The registration form receives the detected

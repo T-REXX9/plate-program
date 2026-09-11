@@ -103,9 +103,10 @@ def users():
 @mobile_api.get('/sites')
 def sites():
     _roles('system_owner')
-    _, get_db, _, _, village_records = _helpers()
+    _, get_db, require_selected_village, _, village_records = _helpers()
     connection = get_db()
-    return {'villages': village_records(connection), 'gates': _json_rows(connection.execute('SELECT g.id, g.village_id, g.gate_uid, g.name, g.is_active, v.name AS village_name FROM gates g JOIN villages v ON v.id = g.village_id ORDER BY v.name, g.name').fetchall()), 'controllers': _json_rows(connection.execute('SELECT c.controller_uid, c.display_name, c.controller_type, c.gate_id, c.is_active, c.lifecycle_status, g.name AS gate_name, v.name AS village_name FROM controllers c LEFT JOIN gates g ON g.id = c.gate_id LEFT JOIN villages v ON v.id = g.village_id ORDER BY c.display_name').fetchall())}
+    village_id = require_selected_village(connection)
+    return {'villages': village_records(connection)[:1], 'gates': _json_rows(connection.execute('SELECT g.id, g.village_id, g.gate_uid, g.name, g.is_active, v.name AS village_name FROM gates g JOIN villages v ON v.id = g.village_id WHERE g.village_id = ? ORDER BY g.name', (village_id,)).fetchall()), 'controllers': _json_rows(connection.execute('SELECT c.controller_uid, c.display_name, c.controller_type, c.gate_id, c.is_active, c.lifecycle_status, g.name AS gate_name, v.name AS village_name FROM controllers c LEFT JOIN gates g ON g.id = c.gate_id LEFT JOIN villages v ON v.id = g.village_id WHERE g.village_id = ? ORDER BY c.display_name', (village_id,)).fetchall())}
 
 
 @mobile_api.post('/vehicles')
@@ -231,6 +232,8 @@ def village_create():
     if not name or not village_uid:
         return {'error': 'Village name and ID are required.'}, 400
     connection = get_db()
+    if connection.execute('SELECT id FROM villages LIMIT 1').fetchone() is not None:
+        return {'error': 'This server already has its village configured.'}, 409
     try:
         cursor = connection.execute('INSERT INTO villages (village_uid, name, timezone, is_active) VALUES (?, ?, ?, 1)', (village_uid, name, payload.get('timezone', 'Asia/Manila')))
         connection.commit()

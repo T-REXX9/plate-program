@@ -684,7 +684,7 @@ def template_context() -> dict[str, Any]:
     }
     if session.get("user_id"):
         connection = get_db()
-        villages = village_records(connection)
+        villages = village_records(connection)[:1]
         active_village_id = selected_village_id(connection)
         controllers = controller_records(connection)
         selected_uid = selected_controller_uid(connection)
@@ -866,6 +866,9 @@ def ensure_controller(
     ).fetchone()
     if context is None:
         abort(401, "Controller is not provisioned on this server.")
+    installation_id = installation_village_id(connection)
+    if installation_id is None or context["village_id"] != installation_id:
+        abort(403, "Controller belongs to a different village than this server installation.")
     allowed_types = (controller_type,) if isinstance(controller_type, str) else controller_type
     if context["controller_type"] not in allowed_types:
         abort(403, "Controller type does not match this endpoint.")
@@ -940,16 +943,18 @@ def selected_village_id(connection: DatabaseConnection) -> int | None:
         session.pop("active_village_id", None)
         return None
         
-    if session.get("role") not in {"system_owner", "administrator"}:
-        # Non-owners are strictly bound to their assigned village
-        return villages[0]["id"]
-        
-    known = {row["id"] for row in villages}
-    selected = session.get("active_village_id")
-    if selected not in known:
-        selected = villages[0]["id"]
-        session["active_village_id"] = selected
+    # Each server installation has one village. Keep the first existing row as
+    # the fixed installation context so legacy data remains readable without a
+    # tenant switcher or a client-provided village choice.
+    selected = villages[0]["id"]
+    session["active_village_id"] = selected
     return selected
+
+
+def installation_village_id(connection: DatabaseConnection) -> int | None:
+    """Return the single village configured for this server installation."""
+    row = connection.execute("SELECT id FROM villages ORDER BY id LIMIT 1").fetchone()
+    return row["id"] if row else None
 
 
 def require_selected_village(connection: DatabaseConnection) -> int:
@@ -960,13 +965,12 @@ def require_selected_village(connection: DatabaseConnection) -> int:
 
 
 def controller_records(connection: DatabaseConnection) -> list[dict[str, Any]]:
-    accessible = village_records(connection)
-    village_ids = [row["id"] for row in accessible]
-    if not village_ids:
+    village_id = selected_village_id(connection)
+    if village_id is None:
         return []
-    placeholders = ",".join("?" for _ in village_ids)
+    placeholders = "?"
     gate_filter = ""
-    parameters: list[Any] = list(village_ids)
+    parameters: list[Any] = [village_id]
     if session.get("role") not in {"system_owner", "administrator"}:
         assigned_gates = connection.execute(
             "SELECT gate_id FROM user_gate_assignments WHERE user_id = ?",
@@ -1046,26 +1050,21 @@ def select_village():
         village_id = int(request.form.get("village_id", "0"))
     except ValueError:
         return {"success": False, "message": "Invalid village."}, 400
-    allowed_villages = {row["id"] for row in village_records(get_db())}
-    if village_id not in allowed_villages:
-        return {"success": False, "message": "You cannot access this village."}, 403
-    exists = get_db().execute(
-        "SELECT 1 FROM villages WHERE id = ? AND is_active = 1", (village_id,)
-    ).fetchone()
-    if exists is None:
-        return {"success": False, "message": "Village not found."}, 404
-    session["active_village_id"] = village_id
-    session.pop("active_controller_uid", None)
-    if request.accept_mimetypes.best == "application/json":
-        return {"success": True, "village_id": village_id}
-    return redirect(request.referrer or url_for("dashboard"))
+    current_village_id = selected_village_id(get_db())
+    if village_id != current_village_id:
+        return {
+            "success": False,
+            "message": "This server is configured for one village; village switching is disabled.",
+        }, 409
+    return {"success": True, "village_id": current_village_id}
 
 
 @app.route("/sites")
 @role_required("administrator")
 def sites():
     connection = get_db()
-    villages = village_records(connection)
+    villages = village_records(connection)[:1]
+    village_id = selected_village_id(connection) or 0
     gates = connection.execute(
         """
         SELECT g.*, v.name AS village_name,
@@ -1075,8 +1074,10 @@ def sites():
                cam.endpoint_url IS NOT NULL AS camera_configured
         FROM gates g JOIN villages v ON v.id = g.village_id
         LEFT JOIN cameras cam ON cam.gate_id = g.id
-        ORDER BY v.name, g.name
-        """
+        WHERE g.village_id = ?
+        ORDER BY g.name
+        """,
+        (village_id,),
     ).fetchall()
     gates = [
         dict(gate, camera_configured=camera_is_configured(
@@ -1119,6 +1120,10 @@ def generated_uid(name: str, label: str) -> str:
 @app.post("/sites/villages")
 @role_required("administrator")
 def village_create():
+    connection = get_db()
+    if connection.execute("SELECT id FROM villages LIMIT 1").fetchone() is not None:
+        flash("This server already has its village configured. Add gates under it instead.", "error")
+        return redirect(url_for("sites"))
     name = " ".join(request.form.get("name", "").split())
     try:
         village_uid = normalize_uid(request.form.get("village_uid", ""), "Village ID") if request.form.get("village_uid", "").strip() else generated_uid(name, "Village ID")
@@ -1130,7 +1135,6 @@ def village_create():
         flash("Enter a valid village name and timezone.", "error")
         return redirect(url_for("sites"))
     try:
-        connection = get_db()
         cursor = connection.execute(
             "INSERT INTO villages (village_uid, name, timezone) VALUES (?, ?, ?)",
             (village_uid, name, timezone),
@@ -1149,7 +1153,8 @@ def village_create():
 def gate_create():
     name = " ".join(request.form.get("name", "").split())
     try:
-        village_id = int(request.form.get("village_id", "0"))
+        connection = get_db()
+        village_id = require_selected_village(connection)
         gate_uid = normalize_uid(request.form.get("gate_uid", ""), "Gate ID") if request.form.get("gate_uid", "").strip() else generated_uid(name, "Gate ID")
     except (ValueError, TypeError) as error:
         flash(str(error), "error")
@@ -1159,7 +1164,6 @@ def gate_create():
         flash("Enter a valid gate name and direction.", "error")
         return redirect(url_for("sites"))
     try:
-        connection = get_db()
         cursor = connection.execute(
             "INSERT INTO gates (village_id, gate_uid, name, direction) VALUES (?, ?, ?, ?)",
             (village_id, gate_uid, name, direction),
@@ -1184,9 +1188,9 @@ def camera_configure(gate_id: int):
         """
         SELECT g.id, g.name, g.village_id, v.name AS village_name
         FROM gates g JOIN villages v ON v.id = g.village_id
-        WHERE g.id = ?
+        WHERE g.id = ? AND g.village_id = ?
         """,
-        (gate_id,),
+        (gate_id, selected_village_id(connection) or 0),
     ).fetchone()
     if gate is None:
         flash("The selected gate does not exist.", "error")
@@ -1239,10 +1243,11 @@ def camera_test(gate_id: int):
     camera = connection.execute(
         """
         SELECT camera_uid, transport, endpoint_url
-        FROM cameras
-        WHERE gate_id = ? AND is_active = 1
+        FROM cameras cam
+        WHERE cam.gate_id = ? AND cam.is_active = 1
+          AND EXISTS (SELECT 1 FROM gates g WHERE g.id = cam.gate_id AND g.village_id = ?)
         """,
-        (gate_id,),
+        (gate_id, selected_village_id(connection) or 0),
     ).fetchone()
     if camera is None:
         flash("Bind a camera to this gate before testing it.", "error")
@@ -1336,6 +1341,12 @@ def controller_create():
     credential_hash = controller_key_digest(controller_key)
     try:
         connection = get_db()
+        if connection.execute(
+            "SELECT 1 FROM gates WHERE id = ? AND village_id = ?",
+            (gate_id, selected_village_id(connection) or 0),
+        ).fetchone() is None:
+            flash("The controller must be assigned to a gate in this village.", "error")
+            return redirect(url_for("sites"))
         connection.execute(
             """
             INSERT INTO controllers (
@@ -1378,9 +1389,9 @@ def controller_assign(controller_uid: str):
         """
         SELECT g.id, g.name, g.village_id, v.name AS village_name
         FROM gates g JOIN villages v ON v.id = g.village_id
-        WHERE g.id = ?
+        WHERE g.id = ? AND g.village_id = ?
         """,
-        (gate_id,),
+        (gate_id, selected_village_id(connection) or 0),
     ).fetchone()
     controller = connection.execute(
         """
@@ -1468,7 +1479,8 @@ def controller_assign(controller_uid: str):
 def village_toggle(village_id: int):
     connection = get_db()
     row = connection.execute(
-        "SELECT name, is_active FROM villages WHERE id = ?", (village_id,)
+        "SELECT name, is_active FROM villages WHERE id = ? AND id = ?",
+        (village_id, selected_village_id(connection) or 0),
     ).fetchone()
     if row is None:
         abort(404)
@@ -1487,7 +1499,11 @@ def village_toggle(village_id: int):
 def gate_toggle(gate_id: int):
     connection = get_db()
     row = connection.execute(
-        "SELECT name, is_active FROM gates WHERE id = ?", (gate_id,)
+        """
+        SELECT g.name, g.is_active FROM gates g
+        WHERE g.id = ? AND g.village_id = ?
+        """,
+        (gate_id, selected_village_id(connection) or 0),
     ).fetchone()
     if row is None:
         abort(404)
@@ -1505,8 +1521,12 @@ def controller_toggle(controller_uid: str):
     controller_uid = normalize_controller_uid(controller_uid, "")
     connection = get_db()
     row = connection.execute(
-        "SELECT display_name, is_active FROM controllers WHERE controller_uid = ?",
-        (controller_uid,),
+        """
+        SELECT c.display_name, c.is_active FROM controllers c
+        JOIN gates g ON g.id = c.gate_id
+        WHERE c.controller_uid = ? AND g.village_id = ?
+        """,
+        (controller_uid, selected_village_id(connection) or 0),
     ).fetchone()
     if row is None:
         abort(404)
@@ -1531,7 +1551,11 @@ def controller_rotate_key(controller_uid: str):
     controller_uid = normalize_controller_uid(controller_uid, "")
     connection = get_db()
     exists = connection.execute(
-        "SELECT 1 FROM controllers WHERE controller_uid = ?", (controller_uid,)
+        """
+        SELECT 1 FROM controllers c JOIN gates g ON g.id = c.gate_id
+        WHERE c.controller_uid = ? AND g.village_id = ?
+        """,
+        (controller_uid, selected_village_id(connection) or 0),
     ).fetchone()
     if exists is None:
         abort(404)
@@ -2916,50 +2940,25 @@ def load_dashboard_state() -> dict[str, Any]:
     village_id = selected_village_id(connection)
     controller_uid = selected_controller_uid(connection)
     scoped_uid = controller_uid or "__no_controller__"
-    if session.get("role") in {"administrator", "system_owner"}:
-        network_summary = connection.execute(
-            """
+    network_summary = connection.execute(
+        """
         SELECT
-            (SELECT COUNT(*) FROM villages) AS villages,
-            (SELECT COUNT(*) FROM gates) AS gates,
-            (SELECT COUNT(*) FROM controllers c
-             JOIN gates g ON g.id = c.gate_id
-             JOIN villages v ON v.id = g.village_id) AS controllers,
-            (SELECT COUNT(*) FROM controllers c
-             LEFT JOIN gates g ON g.id = c.gate_id
-             WHERE g.id IS NULL) AS unassigned_controllers,
-            (SELECT COUNT(*) FROM controllers c
-             JOIN gates g ON g.id = c.gate_id
-             JOIN villages v ON v.id = g.village_id
-             WHERE controller_seen_at IS NOT NULL
+            (SELECT COUNT(*) FROM villages WHERE id = ?) AS villages,
+            (SELECT COUNT(*) FROM gates WHERE village_id = ?) AS gates,
+            (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
+             WHERE g.village_id = ?) AS controllers,
+            0 AS unassigned_controllers,
+            (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
+             WHERE g.village_id = ? AND c.controller_seen_at IS NOT NULL
                AND c.controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP)
-               AND c.is_active = 1 AND g.is_active = 1 AND v.is_active = 1) AS controllers_online,
+               AND c.is_active = 1 AND g.is_active = 1) AS controllers_online,
             (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
-             WHERE c.controller_type = 'plate') AS plate_controllers,
+             WHERE g.village_id = ? AND c.controller_type = 'plate') AS plate_controllers,
             (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
-             WHERE c.controller_type = 'rfid') AS rfid_controllers
-            """
-        ).fetchone()
-    else:
-        network_summary = connection.execute(
-            """
-            SELECT
-                (SELECT COUNT(*) FROM villages WHERE id = ?) AS villages,
-                (SELECT COUNT(*) FROM gates WHERE village_id = ?) AS gates,
-                (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
-                 WHERE g.village_id = ?) AS controllers,
-                0 AS unassigned_controllers,
-                (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
-                 WHERE g.village_id = ? AND c.controller_seen_at IS NOT NULL
-                   AND c.controller_seen_at >= TIMESTAMPADD(SECOND, -12, CURRENT_TIMESTAMP)
-                   AND c.is_active = 1 AND g.is_active = 1) AS controllers_online,
-                (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
-                 WHERE g.village_id = ? AND c.controller_type = 'plate') AS plate_controllers,
-                (SELECT COUNT(*) FROM controllers c JOIN gates g ON g.id = c.gate_id
-                 WHERE g.village_id = ? AND c.controller_type = 'rfid') AS rfid_controllers
-            """,
-            (village_id or 0,) * 6,
-        ).fetchone()
+             WHERE g.village_id = ? AND c.controller_type = 'rfid') AS rfid_controllers
+        """,
+        (village_id or 0,) * 6,
+    ).fetchone()
     expired = connection.execute(
         """
         UPDATE reader_commands

@@ -53,7 +53,7 @@
   <aside class="app-sidebar" aria-label="Primary navigation">
     <a class="sidebar-brand" href="{{ url_for('dashboard') }}" aria-label="Gatekeeper Central overview">
       <span class="brand-shield" aria-hidden="true">G</span>
-      <span><strong>Gatekeeper Central</strong><small>Multi-village access</small></span>
+      <span><strong>Gatekeeper Central</strong><small>Village access server</small></span>
     </a>
 
     <nav class="sidebar-navigation">
@@ -85,11 +85,7 @@
       <span class="topbar-context">Gate operations console</span>
     </div>
     <div class="topbar-user">
-      {% if villages and is_system_owner %}<form class="village-switcher" method="post" action="{{ url_for('select_village') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label><span class="sr-only">Active village</span><select name="village_id" aria-label="Active village">{% for village in villages %}<option value="{{ village.id }}" {{ 'selected' if village.id == selected_village_id else '' }}>{{ village.name }}</option>{% endfor %}</select></label>
-        <button type="submit">Switch</button>
-      </form>{% elif villages %}<div class="village-label"><strong>{{ villages[0].name }}</strong></div>{% elif is_system_owner %}<a class="network-setup-link" href="{{ url_for('sites') }}">＋ Add first village</a>{% endif %}
+      {% if villages %}<div class="village-label"><strong>{{ villages[0].name }}</strong></div>{% elif is_system_owner %}<a class="network-setup-link" href="{{ url_for('sites') }}">＋ Set up village</a>{% endif %}
       {{ controller_switcher(controllers, selected_controller, selected_controller_uid, current_role) }}
       <span class="topbar-role">{{ 'System owner' if is_system_owner else (tenant_role | replace('_', ' ') | title if tenant_role else 'No access') }}</span>
       <span class="account-avatar" aria-hidden="true">{{ current_user[:1] | upper }}</span>
