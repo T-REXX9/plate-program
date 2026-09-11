@@ -1,7 +1,0 @@
-com.gatekeeper.simulator.app-pngs-0 /Users/melsonleanbacuen/Documents/plate/plate-program/android-simulator/app/build/generated/res/pngs/debug
-com.gatekeeper.simulator.app-resValues-1 /Users/melsonleanbacuen/Documents/plate/plate-program/android-simulator/app/build/generated/res/resValues/debug
-com.gatekeeper.simulator.app-packageDebugResources-2 /Users/melsonleanbacuen/Documents/plate/plate-program/android-simulator/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
-com.gatekeeper.simulator.app-packageDebugResources-3 /Users/melsonleanbacuen/Documents/plate/plate-program/android-simulator/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
-com.gatekeeper.simulator.app-debug-4 /Users/melsonleanbacuen/Documents/plate/plate-program/android-simulator/app/build/intermediates/merged_res/debug/mergeDebugResources
-com.gatekeeper.simulator.app-debug-5 /Users/melsonleanbacuen/Documents/plate/plate-program/android-simulator/app/src/debug/res
-com.gatekeeper.simulator.app-main-6 /Users/melsonleanbacuen/Documents/plate/plate-program/android-simulator/app/src/main/res
