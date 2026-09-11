@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
+import secrets
 from collections.abc import Iterable
 
 
@@ -18,6 +19,11 @@ def normalize_tenant_uid(value: str, label: str) -> str:
 
 def controller_key_digest(controller_key: str) -> str:
     return hashlib.sha256(controller_key.encode("utf-8")).hexdigest()
+
+
+def generate_controller_key() -> str:
+    """Return a cryptographically random, exactly 10-digit controller key."""
+    return f"{secrets.randbelow(10**10):010d}"
 
 
 def matching_credential_id(

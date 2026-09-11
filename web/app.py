@@ -45,7 +45,13 @@ from camera import (
     validate_camera_config,
     validate_camera_uid,
 )
-from tenancy import controller_key_digest, matching_credential_id, normalize_tenant_uid
+from tenancy import (
+    controller_key_digest,
+    generate_controller_key,
+    matching_credential_id,
+    normalize_tenant_uid,
+)
+from recognition import encode_jpeg, recognize_frame
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -751,6 +757,8 @@ def request_value(name: str, default: str = "") -> str:
     """Read a scalar from form or JSON requests for hardware compatibility."""
     if name in request.form:
         return request.form.get(name, default)
+    if name in request.args:
+        return request.args.get(name, default)
     payload = request.get_json(silent=True)
     if isinstance(payload, dict) and name in payload:
         value = payload.get(name)
@@ -1090,15 +1098,23 @@ def normalize_uid(value: str, label: str) -> str:
     return normalize_tenant_uid(value, label)
 
 
+def generated_uid(name: str, label: str) -> str:
+    """Create a readable technical ID from a user-facing name."""
+    candidate = re.sub(r"[^A-Za-z0-9]+", "-", name.strip().lower()).strip("-")
+    if not candidate:
+        raise ValueError(f"Enter a valid {label.lower()} name.")
+    return normalize_uid(candidate[:64].rstrip("-"), label)
+
+
 @app.post("/sites/villages")
 @role_required("administrator")
 def village_create():
+    name = " ".join(request.form.get("name", "").split())
     try:
-        village_uid = normalize_uid(request.form.get("village_uid", ""), "Village ID")
+        village_uid = normalize_uid(request.form.get("village_uid", ""), "Village ID") if request.form.get("village_uid", "").strip() else generated_uid(name, "Village ID")
     except ValueError as error:
         flash(str(error), "error")
         return redirect(url_for("sites"))
-    name = " ".join(request.form.get("name", "").split())
     timezone = request.form.get("timezone", "Asia/Manila").strip()
     if not 2 <= len(name) <= 160 or not re.fullmatch(r"[A-Za-z0-9_+./-]{1,64}", timezone):
         flash("Enter a valid village name and timezone.", "error")
@@ -1121,13 +1137,13 @@ def village_create():
 @app.post("/sites/gates")
 @role_required("administrator")
 def gate_create():
+    name = " ".join(request.form.get("name", "").split())
     try:
         village_id = int(request.form.get("village_id", "0"))
-        gate_uid = normalize_uid(request.form.get("gate_uid", ""), "Gate ID")
+        gate_uid = normalize_uid(request.form.get("gate_uid", ""), "Gate ID") if request.form.get("gate_uid", "").strip() else generated_uid(name, "Gate ID")
     except (ValueError, TypeError) as error:
         flash(str(error), "error")
         return redirect(url_for("sites"))
-    name = " ".join(request.form.get("name", "").split())
     direction = request.form.get("direction", "entry")
     if not 2 <= len(name) <= 160 or direction not in {"entry", "exit", "both"}:
         flash("Enter a valid gate name and direction.", "error")
@@ -1153,17 +1169,6 @@ def camera_configure(gate_id: int):
     display_name = " ".join(request.form.get("display_name", "").split())
     transport = request.form.get("transport", "rtsp").strip().lower()
     endpoint_url = request.form.get("endpoint_url", "").strip() or None
-    configured_endpoint = endpoint_url or os.environ.get(
-        camera_endpoint_env_name(camera_uid), ""
-    ).strip() or None
-    try:
-        validate_camera_config(CameraConfig(camera_uid, transport, configured_endpoint))
-    except ValueError as error:
-        flash(str(error), "error")
-        return redirect(url_for("sites"))
-    if not 2 <= len(display_name) <= 100:
-        flash("Enter a valid camera name.", "error")
-        return redirect(url_for("sites"))
     connection = get_db()
     gate = connection.execute(
         """
@@ -1175,6 +1180,21 @@ def camera_configure(gate_id: int):
     ).fetchone()
     if gate is None:
         flash("The selected gate does not exist.", "error")
+        return redirect(url_for("sites"))
+    if not camera_uid:
+        camera_uid = generated_uid(f"{gate['name']}-camera", "Camera ID")
+    if not display_name:
+        display_name = f"{gate['name']} Camera"
+    configured_endpoint = endpoint_url or os.environ.get(
+        camera_endpoint_env_name(camera_uid), ""
+    ).strip() or None
+    try:
+        validate_camera_config(CameraConfig(camera_uid, transport, configured_endpoint))
+    except ValueError as error:
+        flash(str(error), "error")
+        return redirect(url_for("sites"))
+    if not 2 <= len(display_name) <= 100:
+        flash("Enter a valid camera name.", "error")
         return redirect(url_for("sites"))
     try:
         connection.execute(
@@ -1225,8 +1245,16 @@ def camera_test(gate_id: int):
             CameraConfig(camera["camera_uid"], camera["transport"], endpoint_url),
             timeout_seconds=10,
         )
+        detector_model = os.environ.get(
+            "PLATE_DETECTOR_MODEL", str(PROJECT_DIR / "models" / "license_plate_detector.onnx")
+        )
+        recognizer_model = os.environ.get(
+            "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "en_PP-OCRv5_rec_mobile.onnx")
+        )
+        recognition = recognize_frame(frame, detector_model, recognizer_model)
+        annotated_frame = encode_jpeg(recognition.annotated)
         stored_path = store_event_image(
-            "camera-tests", f"{camera['camera_uid']}.jpg", frame
+            "camera-tests", f"{camera['camera_uid']}.jpg", annotated_frame
         )
         if stored_path is None:
             raise CameraError("The captured frame could not be stored.")
@@ -1294,7 +1322,7 @@ def controller_create():
     if not 2 <= len(display_name) <= 100 or controller_type not in {"plate", "rfid"}:
         flash("Enter a valid controller name and type.", "error")
         return redirect(url_for("sites"))
-    controller_key = secrets.token_urlsafe(32)
+    controller_key = generate_controller_key()
     credential_hash = controller_key_digest(controller_key)
     try:
         connection = get_db()
@@ -1361,7 +1389,7 @@ def controller_assign(controller_uid: str):
     if controller["gate_id"] == gate_id:
         flash("That controller is already assigned to the selected gate.", "error")
         return redirect(url_for("sites"))
-    new_key = secrets.token_urlsafe(32)
+    new_key = generate_controller_key()
     connection.execute("START TRANSACTION")
     connection.execute(
         """
@@ -1497,7 +1525,7 @@ def controller_rotate_key(controller_uid: str):
     ).fetchone()
     if exists is None:
         abort(404)
-    new_key = secrets.token_urlsafe(32)
+    new_key = generate_controller_key()
     connection.execute(
         """
         UPDATE controller_credentials SET revoked_at = CURRENT_TIMESTAMP
@@ -1790,8 +1818,12 @@ def controller_access_result():
     controller = ensure_controller(connection, controller_uid, "plate")
     event = connection.execute(
         """
-        SELECT e.id, e.plate_number, e.rfid_number, e.decision, e.gate_action,
-               e.vehicle_id, e.annotated_image_path, j.status AS job_status
+        SELECT e.id, e.plate_number, e.rfid_number, e.detector_confidence,
+               e.ocr_confidence, e.decision, e.gate_action,
+               e.vehicle_id, e.annotated_image_path, j.status AS job_status,
+               CAST(TIMESTAMPDIFF(MICROSECOND, j.requested_at, j.started_at) / 1000 AS UNSIGNED) AS queue_ms,
+               CAST(TIMESTAMPDIFF(MICROSECOND, j.started_at, j.completed_at) / 1000 AS UNSIGNED) AS processing_ms,
+               CAST(TIMESTAMPDIFF(MICROSECOND, j.requested_at, j.completed_at) / 1000 AS UNSIGNED) AS server_total_ms
         FROM access_events e
         LEFT JOIN camera_capture_jobs j ON j.attempt_uid COLLATE utf8mb4_unicode_ci =
             e.attempt_uid COLLATE utf8mb4_unicode_ci
@@ -1819,13 +1851,62 @@ def controller_access_result():
         "accepted": True,
         "attempt_uid": attempt_uid,
         "event_id": event["id"],
+        "controller_id": controller["controller_uid"],
+        "gate_id": controller["gate_uid"],
+        "gate_name": controller["gate_name"],
+        "village_id": controller["village_uid"],
+        "village_name": controller["village_name"],
         "status": status,
         "authorized": status == "authorized",
         "plate": event["plate_number"],
+        "detector_confidence": event["detector_confidence"],
+        "ocr_confidence": event["ocr_confidence"],
         "rfid": event["rfid_number"],
         "gate_action": event["gate_action"],
         "annotated_image_available": bool(event["annotated_image_path"]),
+        "server_timing_ms": {
+            "queue": event["queue_ms"],
+            "processing": event["processing_ms"],
+            "total": event["server_total_ms"],
+        },
     }
+
+
+@app.get("/api/controller/access-frame")
+def controller_access_frame():
+    """Return the annotated frame for one authenticated controller attempt."""
+    try:
+        controller_uid = request_controller_uid("unprovisioned-plate-controller")
+        attempt_uid = request_attempt_uid()
+    except ValueError as error:
+        return {"error": str(error)}, 400
+    if attempt_uid is None:
+        return {"error": "A capture attempt ID is required."}, 400
+    connection = get_db()
+    controller = ensure_controller(connection, controller_uid, "plate")
+    event = connection.execute(
+        """
+        SELECT annotated_image_path
+        FROM access_events
+        WHERE village_id = ? AND gate_id = ? AND controller_uid = ?
+          AND attempt_uid = ?
+        LIMIT 1
+        """,
+        (controller["village_id"], controller["gate_id"], controller_uid, attempt_uid),
+    ).fetchone()
+    if event is None or not event["annotated_image_path"]:
+        abort(404)
+    image_path = Path(event["annotated_image_path"])
+    if not image_path.is_absolute():
+        image_path = PROJECT_DIR / image_path
+    image_path = image_path.resolve()
+    try:
+        image_path.relative_to(PROJECT_DIR.resolve())
+    except ValueError:
+        abort(403)
+    if not image_path.is_file():
+        abort(404)
+    return send_file(image_path, mimetype="image/jpeg", max_age=0)
 
 
 @app.post("/api/internal/camera-jobs/<int:job_id>/recognition")
@@ -2052,6 +2133,11 @@ def controller_capture_request():
         "job_id": cursor.lastrowid,
         "event_id": event_cursor.lastrowid,
         "attempt_uid": attempt_uid,
+        "controller_id": controller["controller_uid"],
+        "gate_id": controller["gate_uid"],
+        "gate_name": controller["gate_name"],
+        "village_id": controller["village_uid"],
+        "village_name": controller["village_name"],
         "camera_id": camera["camera_uid"],
         "transport": camera["transport"],
         "status": "pending",
@@ -2896,6 +2982,7 @@ def load_dashboard_state() -> dict[str, Any]:
                DATE_FORMAT(controllers.updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at,
                cameras.camera_uid AS camera_uid,
                cameras.transport AS camera_transport,
+               cameras.endpoint_url AS camera_endpoint_url,
                cameras.status AS camera_status,
                cameras.endpoint_url IS NOT NULL AS camera_configured,
                DATE_FORMAT(cameras.last_seen_at, '%Y-%m-%d %H:%i:%s') AS camera_last_seen_at,
@@ -3072,8 +3159,16 @@ def camera_capture():
             CameraConfig(camera["camera_uid"], camera["transport"], endpoint_url),
             timeout_seconds=10,
         )
+        detector_model = os.environ.get(
+            "PLATE_DETECTOR_MODEL", str(PROJECT_DIR / "models" / "license_plate_detector.onnx")
+        )
+        recognizer_model = os.environ.get(
+            "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "en_PP-OCRv5_rec_mobile.onnx")
+        )
+        recognition = recognize_frame(frame, detector_model, recognizer_model)
+        annotated_frame = encode_jpeg(recognition.annotated)
         stored_path = store_event_image(
-            "camera-tests", f"{camera['camera_uid']}.jpg", frame
+            "camera-tests", f"{camera['camera_uid']}.jpg", annotated_frame
         )
         if stored_path is None:
             raise CameraError("The captured frame could not be stored.")
@@ -3113,6 +3208,12 @@ def camera_capture():
                 else None
             ),
             "frame_version": session.get("camera_test_version") if success else None,
+            "recognition": {
+                "plate": recognition.plate,
+                "detector_confidence": recognition.detector_confidence,
+                "ocr_confidence": recognition.ocr_confidence,
+                "status": "recognized" if recognition.plate != "UNREADABLE" else "unreadable",
+            } if success else None,
         }, 200 if success else 502
     flash(message, "success" if success else "error")
     return redirect(url_for("dashboard"))
