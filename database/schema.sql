@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS controllers (
     barrier_open TINYINT(1) NOT NULL DEFAULT 0,
     traffic_green TINYINT(1) NOT NULL DEFAULT 0,
     plate_unrecognized TINYINT(1) NOT NULL DEFAULT 0,
+    recognition_attempt_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    recognition_locked_until_clear TINYINT(1) NOT NULL DEFAULT 0,
     last_plate VARCHAR(20) NULL,
     last_rfid VARCHAR(64) NULL,
     controller_seen_at TIMESTAMP NULL,
@@ -114,7 +116,10 @@ CREATE TABLE IF NOT EXISTS controllers (
     CONSTRAINT chk_controllers_uid CHECK (
         controller_uid REGEXP '^[A-Za-z0-9._:-]{1,64}$'
     ),
-    CONSTRAINT chk_controllers_active CHECK (is_active IN (0, 1))
+    CONSTRAINT chk_controllers_active CHECK (is_active IN (0, 1)),
+    CONSTRAINT chk_controllers_recognition_lock CHECK (
+        recognition_locked_until_clear IN (0, 1)
+    )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS cameras (

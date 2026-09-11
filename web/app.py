@@ -90,6 +90,7 @@ def authorization_error(error):
 
 MAX_CROP_BYTES = 4 * 1024 * 1024
 MAX_FRAME_BYTES = 10 * 1024 * 1024
+MAX_RECOGNITION_ATTEMPTS = 5
 
 
 def mysql_options() -> dict[str, Any]:
@@ -162,6 +163,14 @@ def initialize_database() -> None:
             ("access_events", "attempt_uid", "VARCHAR(80) NULL AFTER controller_uid"),
             ("reader_commands", "controller_uid", "VARCHAR(64) NULL AFTER id"),
             ("controllers", "rfid_connected", "TINYINT(1) NOT NULL DEFAULT 0 AFTER camera_connected"),
+            (
+                "controllers", "recognition_attempt_count",
+                "TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER plate_unrecognized",
+            ),
+            (
+                "controllers", "recognition_locked_until_clear",
+                "TINYINT(1) NOT NULL DEFAULT 0 AFTER recognition_attempt_count",
+            ),
             ("controllers", "is_active", "TINYINT(1) NOT NULL DEFAULT 1 AFTER controller_type"),
             (
                 "controllers", "lifecycle_status",
@@ -842,7 +851,8 @@ def ensure_controller(
                g.gate_uid, g.name AS gate_name,
                v.village_uid, v.name AS village_name,
                c.controller_type, c.display_name, c.is_active,
-               c.lifecycle_status,
+               c.lifecycle_status, c.recognition_attempt_count,
+               c.recognition_locked_until_clear,
                c.is_active = 1 AND c.gate_id IS NOT NULL
                    AND g.is_active = 1 AND v.is_active = 1
                    AS assignment_active
@@ -1619,6 +1629,7 @@ def rfid_controller_status():
     controller = ensure_controller(connection, controller_uid, ("rfid", "plate"))
     if not controller["assignment_active"]:
         return {"error": "Controller gate or village is inactive."}, 403
+    loop_active = reader_form_boolean("loop_active")
     connection.execute(
         """
         UPDATE controllers
@@ -1627,6 +1638,10 @@ def rfid_controller_status():
             rfid_connected = ?,
             loop_active = ?, ir_blocked = ?, barrier_open = ?,
             traffic_green = ?, plate_unrecognized = ?,
+            recognition_attempt_count = CASE WHEN ? = 0 THEN 0
+                                             ELSE recognition_attempt_count END,
+            recognition_locked_until_clear = CASE WHEN ? = 0 THEN 0
+                                                   ELSE recognition_locked_until_clear END,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
@@ -1638,11 +1653,13 @@ def rfid_controller_status():
             gate_state,
             int(controller["controller_type"] == "plate"),
             reader_form_boolean("rfid_connected") if "rfid_connected" in request.form else True,
-            reader_form_boolean("loop_active"),
+            loop_active,
             reader_form_boolean("ir_blocked"),
             reader_form_boolean("barrier_open"),
             reader_form_boolean("traffic_green"),
             reader_form_boolean("credential_unrecognized"),
+            loop_active,
+            loop_active,
             controller_uid,
         ),
     )
@@ -1676,6 +1693,27 @@ def rfid_controller_recognition():
         attempt_uid = request_attempt_uid()
     except ValueError as error:
         return {"error": str(error)}, 400
+    if controller["controller_type"] == "plate":
+        accepted_attempt = connection.execute(
+            """
+            SELECT 1 FROM camera_capture_jobs
+            WHERE controller_uid = ? AND attempt_uid = ?
+            LIMIT 1
+            """,
+            (controller_uid, attempt_uid),
+        ).fetchone()
+        if controller["recognition_locked_until_clear"] or (
+            controller["recognition_attempt_count"] >= MAX_RECOGNITION_ATTEMPTS
+            and accepted_attempt is None
+        ):
+            connection.commit()
+            return {
+                "accepted": False,
+                "controller_id": controller_uid,
+                "attempt_uid": attempt_uid,
+                "status": "locked_until_loop_clear",
+                "error": "Recognition limit reached; waiting for the loop detector to clear.",
+            }, 423
     vehicle = connection.execute(
         """
         SELECT v.id, v.plate_number, v.owner_name, v.vehicle_type, v.make, v.model
@@ -1836,8 +1874,8 @@ def controller_access_result():
             controller_uid, attempt_uid,
         ),
     ).fetchone()
-    connection.commit()
     if event is None:
+        connection.commit()
         return {"accepted": True, "attempt_uid": attempt_uid, "status": "pending"}, 202
     if event["decision"] == "authorized":
         status = "authorized"
@@ -1847,6 +1885,21 @@ def controller_access_result():
         status = "denied"
     else:
         status = "pending"
+    if status == "denied" and (
+        controller["recognition_attempt_count"] >= MAX_RECOGNITION_ATTEMPTS
+        or controller["recognition_locked_until_clear"]
+    ):
+        connection.execute(
+            """
+            UPDATE controllers
+            SET recognition_locked_until_clear = 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE controller_uid = ?
+            """,
+            (controller_uid,),
+        )
+        status = "locked_until_loop_clear"
+    connection.commit()
     return {
         "accepted": True,
         "attempt_uid": attempt_uid,
@@ -2066,6 +2119,37 @@ def controller_capture_request():
             "idempotent": True,
         }, 200
 
+    attempt_update = connection.execute(
+        """
+        UPDATE controllers
+        SET recognition_attempt_count = recognition_attempt_count + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE controller_uid = ?
+          AND recognition_locked_until_clear = 0
+          AND recognition_attempt_count < ?
+        """,
+        (controller_uid, MAX_RECOGNITION_ATTEMPTS),
+    )
+    if attempt_update.rowcount != 1:
+        connection.execute(
+            """
+            UPDATE controllers
+            SET recognition_locked_until_clear = 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE controller_uid = ?
+            """,
+            (controller_uid,),
+        )
+        connection.commit()
+        return {
+            "accepted": False,
+            "controller_id": controller_uid,
+            "attempt_uid": attempt_uid,
+            "status": "locked_until_loop_clear",
+            "max_attempts": MAX_RECOGNITION_ATTEMPTS,
+            "error": "Recognition limit reached; waiting for the loop detector to clear.",
+        }, 423
+
     try:
         validate_camera_uid(camera["camera_uid"])
         cursor = connection.execute(
@@ -2163,12 +2247,17 @@ def reader_status():
     controller = ensure_controller(connection, controller_uid, "plate")
     if not controller["assignment_active"]:
         return {"error": "Controller gate or village is inactive."}, 403
+    loop_active = reader_form_boolean("loop_active")
     connection.execute(
         """
         UPDATE controllers
         SET camera_state = ?, detector_state = ?, gate_state = ?,
             camera_connected = ?, rfid_connected = ?, loop_active = ?, ir_blocked = ?,
             barrier_open = ?, traffic_green = ?, plate_unrecognized = ?,
+            recognition_attempt_count = CASE WHEN ? = 0 THEN 0
+                                             ELSE recognition_attempt_count END,
+            recognition_locked_until_clear = CASE WHEN ? = 0 THEN 0
+                                                   ELSE recognition_locked_until_clear END,
             controller_seen_at = CURRENT_TIMESTAMP,
             last_heartbeat = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
@@ -2180,11 +2269,13 @@ def reader_status():
             gate_state,
             camera_connected,
             reader_form_boolean("rfid_connected"),
-            reader_form_boolean("loop_active"),
+            loop_active,
             reader_form_boolean("ir_blocked"),
             reader_form_boolean("barrier_open"),
             reader_form_boolean("traffic_green"),
             reader_form_boolean("plate_unrecognized"),
+            loop_active,
+            loop_active,
             controller_uid,
         ),
     )

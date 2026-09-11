@@ -490,6 +490,16 @@ elif [[ ! -f "$env_file" ]]; then
     exit 1
 fi
 
+# The local recognition worker authenticates its result callback even when it
+# runs on this machine. Backfill settings missing from older installations
+# without replacing an existing key or custom server URL.
+if ! grep -q '^CAMERA_WORKER_KEY=.' "$env_file"; then
+    printf 'CAMERA_WORKER_KEY=%s\n' "$(openssl rand -hex 32)" >> "$env_file"
+fi
+if ! grep -q '^PLATE_SERVER_URL=.' "$env_file"; then
+    printf '%s\n' 'PLATE_SERVER_URL=http://127.0.0.1:8080' >> "$env_file"
+fi
+
 mkdir -p "$project_dir/Output" "$project_dir/database"
 if [[ ! -s "$project_dir/database/web_secret.key" ]]; then
     umask 077

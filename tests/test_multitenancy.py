@@ -102,6 +102,18 @@ class MultiTenantSchemaContractTests(unittest.TestCase):
         self.assertIn("UNIQUE KEY uq_camera_capture_attempt (attempt_uid)", jobs)
         self.assertIn("FOREIGN KEY (camera_uid, gate_id)", jobs)
 
+    def test_controller_tracks_server_side_vehicle_attempt_limit(self) -> None:
+        controllers = self.schema.split("CREATE TABLE IF NOT EXISTS controllers", 1)[1]
+        controllers = controllers.split("CREATE TABLE IF NOT EXISTS cameras", 1)[0]
+        self.assertIn(
+            "recognition_attempt_count TINYINT UNSIGNED NOT NULL DEFAULT 0",
+            controllers,
+        )
+        self.assertIn(
+            "recognition_locked_until_clear TINYINT(1) NOT NULL DEFAULT 0",
+            controllers,
+        )
+
 
 class CrossVillageIsolationTests(unittest.TestCase):
     @classmethod
