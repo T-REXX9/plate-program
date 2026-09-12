@@ -136,6 +136,10 @@ class MultiTenantSchemaContractTests(unittest.TestCase):
         self.assertIn("1. Add a gate", sites)
         self.assertIn("2. Connect the controller", sites)
         self.assertIn("3. Connect each camera", sites)
+        vehicle_form = (PROJECT_DIR / "web" / "templates" / "vehicle_form.html").read_text(encoding="utf-8")
+        self.assertIn('pattern="[A-Z0-9]{1,20}"', vehicle_form)
+        self.assertIn("toUpperCase().replace(/[^A-Z0-9]/g, '')", vehicle_form)
+        self.assertIn("bound to a gate, not an individual controller", sites)
 
 
 class CrossVillageIsolationTests(unittest.TestCase):

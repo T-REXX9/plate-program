@@ -68,7 +68,7 @@
 </section>
 
 <section class="panel">
-  <div class="panel-heading"><div><h2>3. Connect each camera</h2><p>Choose a gate, paste its camera link, then test the picture. The server handles plate recognition.</p></div><span class="setup-step">LAST STEP</span></div>
+  <div class="panel-heading"><div><h2>3. Connect each camera</h2><p>Each camera is bound to a gate, not an individual controller. Controllers assigned to that gate share its camera. Paste the camera link, then test the picture.</p></div><span class="setup-step">LAST STEP</span></div>
   {% for gate in gates %}
   <form class="stacked-form" method="post" action="{{ url_for('camera_configure', gate_id=gate.id) }}" style="margin-bottom: 1.5rem;">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
