@@ -6,6 +6,17 @@
   <div><p class="eyebrow">Installation</p><h1>Gates & Devices</h1><p>Manage this village’s gates, cameras, and controllers from one place.</p></div>
 </div>
 
+{% if villages %}
+<section class="panel">
+  <div class="panel-heading"><div><h2>Village</h2><p>This server controls one village. Rename the default village whenever you are ready.</p></div></div>
+  <form class="stacked-form" method="post" action="{{ url_for('village_rename') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Village name<input name="name" required maxlength="160" value="{{ villages[0].name }}" placeholder="Example: Maple Village"></label>
+    <button class="secondary-button" type="submit">Save village name</button>
+  </form>
+</section>
+{% endif %}
+
 {% if new_credential %}
 <section class="panel credential-reveal" style="border: 2px solid var(--accent); background: var(--accent-light);">
   <div class="panel-heading"><div><h2>Save your controller credential</h2><p><strong>Copy this now.</strong> For security, the key is never shown again.</p></div></div>

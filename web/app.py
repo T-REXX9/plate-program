@@ -270,6 +270,18 @@ def initialize_database() -> None:
                     (legacy_village_id, legacy_gate_id),
                 )
 
+        # Every server installation is single-village.  Keep a usable default
+        # village even when a fresh or otherwise empty legacy database has no
+        # records that would trigger the backfill above.  The system owner can
+        # rename this row from Gates & Devices.
+        if connection.execute("SELECT id FROM villages LIMIT 1").fetchone() is None:
+            connection.execute(
+                """
+                INSERT INTO villages (village_uid, name, timezone, is_active)
+                VALUES ('server-village', 'My Village', 'Asia/Manila', 1)
+                """
+            )
+
         # Historical rows may reference controller identifiers that no longer
         # exist. Keep the event/command but clear the optional broken link.
         for table in ("access_events", "reader_commands"):
@@ -1145,6 +1157,30 @@ def village_create():
         flash(f"{name} was created.", "success")
     except IntegrityError:
         flash("That village ID or name is already in use.", "error")
+    return redirect(url_for("sites"))
+
+
+@app.post("/sites/village/rename")
+@role_required("administrator")
+def village_rename():
+    connection = get_db()
+    village = connection.execute(
+        "SELECT id FROM villages ORDER BY id LIMIT 1"
+    ).fetchone()
+    if village is None:
+        flash("The server village has not been initialized yet. Restart the program and try again.", "error")
+        return redirect(url_for("sites"))
+    name = " ".join(request.form.get("name", "").split())
+    if not 2 <= len(name) <= 160:
+        flash("Enter a village name between 2 and 160 characters.", "error")
+        return redirect(url_for("sites"))
+    try:
+        connection.execute("UPDATE villages SET name = ? WHERE id = ?", (name, village["id"]))
+        record_audit("rename_village", "village", village["id"], name)
+        connection.commit()
+        flash(f"Village renamed to {name}.", "success")
+    except IntegrityError:
+        flash("That village name is already in use.", "error")
     return redirect(url_for("sites"))
 
 

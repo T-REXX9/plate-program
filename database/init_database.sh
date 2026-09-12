@@ -31,4 +31,4 @@ MYSQL_PWD="$MYSQL_PASSWORD" mysql \
     "$MYSQL_DATABASE" < "$schema_path"
 
 echo "Centralized MySQL schema ready: $MYSQL_DATABASE on $MYSQL_HOST:$MYSQL_PORT"
-echo "Create villages, gates, and controller credentials from Villages & Gates after signing in."
+echo "A default village is ready to rename; create gates and controller credentials from Gates & Devices after signing in."
