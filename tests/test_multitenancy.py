@@ -138,6 +138,8 @@ class MultiTenantSchemaContractTests(unittest.TestCase):
         self.assertIn("3. Connect the camera", sites)
         self.assertIn('name="controller_uid"', sites)
         self.assertIn("url_for('camera_configure')", sites)
+        self.assertIn("The camera was not saved.", app_source)
+        self.assertIn("preview_frame = capture_frame", app_source)
         vehicle_form = (PROJECT_DIR / "web" / "templates" / "vehicle_form.html").read_text(encoding="utf-8")
         self.assertIn('pattern="[A-Z0-9]{1,20}"', vehicle_form)
         self.assertIn("toUpperCase().replace(/[^A-Z0-9]/g, '')", vehicle_form)

@@ -1270,17 +1270,28 @@ def camera_configure(gate_id: int | None = None):
     if not 2 <= len(display_name) <= 100:
         flash("Enter a valid camera name.", "error")
         return redirect(url_for("sites"))
+    # Verify the endpoint before changing the database. A failed setup test
+    # must leave an existing camera binding untouched.
+    try:
+        preview_frame = capture_frame(
+            CameraConfig(camera_uid, transport, configured_endpoint),
+            timeout_seconds=10,
+        )
+    except (CameraError, ValueError) as error:
+        flash(f"Camera test failed: {error}. The camera was not saved.", "error")
+        return redirect(url_for("sites"))
     try:
         connection.execute(
             """
             INSERT INTO cameras (
                 camera_uid, gate_id, display_name, transport, endpoint_url,
                 status, is_active
-            ) VALUES (?, ?, ?, ?, ?, 'unknown', 1)
+            ) VALUES (?, ?, ?, ?, ?, 'online', 1)
             ON DUPLICATE KEY UPDATE
                 gate_id = VALUES(gate_id), display_name = VALUES(display_name),
                 transport = VALUES(transport), endpoint_url = VALUES(endpoint_url),
-                is_active = 1, updated_at = CURRENT_TIMESTAMP
+                is_active = 1, status = 'online', last_seen_at = CURRENT_TIMESTAMP,
+                last_error = NULL, updated_at = CURRENT_TIMESTAMP
             """,
             (camera_uid, gate_id, display_name, transport, endpoint_url),
         )
@@ -1291,7 +1302,12 @@ def camera_configure(gate_id: int | None = None):
             village_id=gate["village_id"],
         )
         connection.commit()
+        stored_path = store_event_image(
+            "camera-tests", f"{camera_uid}.jpg", preview_frame
+        )
         flash(f"{display_name} was bound to {gate['name']}.", "success")
+        session["camera_test_uid"] = camera_uid
+        session["camera_test_version"] = int(datetime.now().timestamp())
     except IntegrityError:
         flash("That camera ID is already bound to another gate.", "error")
     return redirect(url_for("sites"))
