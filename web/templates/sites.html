@@ -48,6 +48,20 @@
       <button class="primary-button" type="submit" {% if not gates %}disabled{% endif %}>Connect controller</button>
     </form>
   </section>
+
+  <section class="panel" style="opacity: {{ '1' if site_controllers else '0.5' }};">
+    <div class="panel-heading"><div><h2>3. Connect the camera</h2><p>Choose the controller for this gate, then paste the camera link. The camera is stored against that controller’s gate.</p></div><span class="setup-step">LAST STEP</span></div>
+    {% if site_controllers %}
+    <form class="stacked-form" method="post" action="{{ url_for('camera_configure') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Which controller is this camera for?<select name="controller_uid" required>{% for controller in site_controllers %}<option value="{{ controller.controller_uid }}">{{ controller.display_name }} — {{ controller.gate_name }} ({{ controller.controller_uid }})</option>{% endfor %}</select><small class="cell-note">The camera will be bound to the selected controller’s gate.</small></label>
+      <label>Paste the camera link<input name="endpoint_url" type="url" maxlength="1000" placeholder="rtsp://username:password@camera-address:554/stream1"><small class="cell-note">Keep this link private. It is stored on the server. Camera-agent setups may leave this blank.</small></label>
+      <label>Camera link type<select name="transport"><option value="rtsp">RTSP (most network cameras)</option><option value="http_mjpeg">HTTP/MJPEG</option><option value="agent">Camera agent</option></select></label>
+      <details class="advanced-option"><summary>Advanced camera options</summary><label>Camera ID<input name="camera_uid" maxlength="64" placeholder="Leave blank to create automatically"></label><label>Camera display name<input name="display_name" maxlength="100" placeholder="Leave blank to use the gate name"></label></details>
+      <button class="primary-button" type="submit">Save camera and test it</button>
+    </form>
+    {% else %}<div class="empty-state"><strong>Connect a controller first</strong><span>Step 3 will be available after a controller is assigned to a gate.</span></div>{% endif %}
+  </section>
 </div>
 
 {% if unassigned_controllers %}
@@ -68,24 +82,19 @@
 </section>
 
 <section class="panel">
-  <div class="panel-heading"><div><h2>3. Connect each camera</h2><p>Each camera is bound to a gate, not an individual controller. Controllers assigned to that gate share its camera. Paste the camera link, then test the picture.</p></div><span class="setup-step">LAST STEP</span></div>
-  {% for gate in gates %}
-  <form class="stacked-form" method="post" action="{{ url_for('camera_configure', gate_id=gate.id) }}" style="margin-bottom: 1.5rem;">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <p><strong>{{ gate.village_name }} — {{ gate.name }}</strong>{% if gate.camera_uid %}<small class="cell-note">Camera already connected: {{ gate.camera_name }}</small>{% endif %}</p>
-    <label>Paste the camera link<input name="endpoint_url" type="url" maxlength="1000" placeholder="rtsp://username:password@camera-address:554/stream1"><small class="cell-note">Keep this link private. It is stored on the server and is never shown in the normal setup list.</small></label>
-    <label>Camera link type<select name="transport"><option value="rtsp"{% if gate.camera_transport == 'rtsp' %} selected{% endif %}>RTSP (most network cameras)</option><option value="http_mjpeg"{% if gate.camera_transport == 'http_mjpeg' %} selected{% endif %}>HTTP/MJPEG</option><option value="agent"{% if gate.camera_transport == 'agent' %} selected{% endif %}>Camera agent</option></select></label>
-    <details class="advanced-option"><summary>Advanced camera options</summary><label>Camera ID<input name="camera_uid" maxlength="64" placeholder="Leave blank to create automatically"></label><label>Camera display name<input name="display_name" maxlength="100" placeholder="Leave blank to use the gate name"></label></details>
-    <button class="primary-button" type="submit">Save camera and test it</button>
-  </form>
-  {% if gate.camera_uid %}
-  <form method="post" action="{{ url_for('camera_test', gate_id=gate.id) }}" style="margin-top: -1rem; margin-bottom: 1.5rem;">
+  <div class="panel-heading"><div><h2>Configured cameras</h2><p>Each gate has one camera. Controllers assigned to the same gate share it.</p></div></div>
+  {% if configured_gates %}
+  {% for gate in configured_gates %}
+  <div class="stacked-form" style="margin-bottom: 1.5rem;">
+    <p><strong>{{ gate.village_name }} — {{ gate.name }}</strong><small class="cell-note">{{ gate.camera_name }}</small></p>
+    <form method="post" action="{{ url_for('camera_test', gate_id=gate.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="secondary-button" type="submit">Capture frame</button>
-  </form>
+    </form>
   {% if camera_test_uid == gate.camera_uid %}<img src="{{ url_for('camera_test_frame', camera_uid=gate.camera_uid) }}?v={{ camera_test_version }}" alt="Latest test frame from {{ gate.camera_name }}" style="display:block; max-width:100%; max-height:360px; object-fit:contain; border-radius:12px; margin-bottom:1.5rem;">{% endif %}
-  {% endif %}
-  {% else %}<div class="empty-state"><strong>Create a gate first</strong><span>Each gate can have one bound camera.</span></div>{% endfor %}
+  </div>
+  {% endfor %}
+  {% else %}<div class="empty-state"><strong>No cameras connected</strong><span>Connect a controller, then configure its gate’s camera in Step 3.</span></div>{% endif %}
 </section>
 
 <section class="panel">

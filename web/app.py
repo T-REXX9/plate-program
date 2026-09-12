@@ -1110,6 +1110,7 @@ def sites():
     new_credential = session.pop("new_controller_credential", None)
     return render_template(
         "sites.html", villages=villages, gates=gates,
+        configured_gates=[gate for gate in gates if gate["camera_uid"]],
         site_controllers=controllers, unassigned_controllers=unassigned_controllers,
         new_credential=new_credential,
         camera_test_uid=session.get("camera_test_uid"),
@@ -1212,14 +1213,37 @@ def gate_create():
     return redirect(url_for("sites"))
 
 
+@app.post("/sites/cameras")
 @app.post("/sites/gates/<int:gate_id>/camera")
 @role_required("administrator")
-def camera_configure(gate_id: int):
+def camera_configure(gate_id: int | None = None):
     camera_uid = request.form.get("camera_uid", "").strip()
     display_name = " ".join(request.form.get("display_name", "").split())
     transport = request.form.get("transport", "rtsp").strip().lower()
     endpoint_url = request.form.get("endpoint_url", "").strip() or None
     connection = get_db()
+    controller_uid = request.form.get("controller_uid", "").strip()
+    if controller_uid:
+        try:
+            controller_uid = normalize_controller_uid(controller_uid, "")
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("sites"))
+        controller = connection.execute(
+            """
+            SELECT c.gate_id
+            FROM controllers c JOIN gates g ON g.id = c.gate_id
+            WHERE c.controller_uid = ? AND g.village_id = ?
+            """,
+            (controller_uid, selected_village_id(connection) or 0),
+        ).fetchone()
+        if controller is None:
+            flash("Choose a controller assigned to this server's village.", "error")
+            return redirect(url_for("sites"))
+        gate_id = controller["gate_id"]
+    if gate_id is None:
+        flash("Choose a controller before connecting a camera.", "error")
+        return redirect(url_for("sites"))
     gate = connection.execute(
         """
         SELECT g.id, g.name, g.village_id, v.name AS village_name
@@ -1262,7 +1286,8 @@ def camera_configure(gate_id: int):
         )
         record_audit(
             "configure_camera", "camera", None,
-            f"{camera_uid} bound to {gate['village_name']} / {gate['name']}",
+            f"{camera_uid} bound to {gate['village_name']} / {gate['name']}"
+            + (f" via {controller_uid}" if controller_uid else ""),
             village_id=gate["village_id"],
         )
         connection.commit()

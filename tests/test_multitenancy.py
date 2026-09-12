@@ -135,11 +135,12 @@ class MultiTenantSchemaContractTests(unittest.TestCase):
         self.assertIn("url_for('village_rename')", sites)
         self.assertIn("1. Add a gate", sites)
         self.assertIn("2. Connect the controller", sites)
-        self.assertIn("3. Connect each camera", sites)
+        self.assertIn("3. Connect the camera", sites)
+        self.assertIn('name="controller_uid"', sites)
+        self.assertIn("url_for('camera_configure')", sites)
         vehicle_form = (PROJECT_DIR / "web" / "templates" / "vehicle_form.html").read_text(encoding="utf-8")
         self.assertIn('pattern="[A-Z0-9]{1,20}"', vehicle_form)
         self.assertIn("toUpperCase().replace(/[^A-Z0-9]/g, '')", vehicle_form)
-        self.assertIn("bound to a gate, not an individual controller", sites)
 
 
 class CrossVillageIsolationTests(unittest.TestCase):
