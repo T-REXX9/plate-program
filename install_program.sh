@@ -331,6 +331,9 @@ if [[ "$platform" == "macos" ]]; then
         eval "$(/usr/local/bin/brew shellenv)"
     fi
     retry 3 5 brew install git python
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+        retry 3 5 brew install ffmpeg
+    fi
     if ! command -v mysql >/dev/null 2>&1; then
         retry 3 5 brew install mysql
     fi
@@ -362,6 +365,7 @@ else
         database_service="mysql"
     fi
     if ! has_apt_candidate python3 ||
+       ! has_apt_candidate ffmpeg ||
        ! has_apt_candidate "$database_server_package" ||
        ! has_apt_candidate "$database_client_package"; then
         if ((developer_override == 1)); then
@@ -378,10 +382,11 @@ else
         retry 3 5 apt_get install -y --no-install-recommends "$@"
     }
     verify_apt_candidate python3
+    verify_apt_candidate ffmpeg
     verify_apt_candidate "$database_server_package"
     verify_apt_candidate "$database_client_package"
     apt_install \
-        ca-certificates curl git openssl python3 \
+        ca-certificates curl ffmpeg git openssl python3 \
         "$database_server_package" "$database_client_package"
     systemctl enable --now "$database_service"
     python_command=python3
