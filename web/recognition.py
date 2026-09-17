@@ -10,6 +10,7 @@ import numpy as np
 
 
 _MODEL_CACHE: dict[str, cv2.dnn.Net] = {}
+_PLATE_CROP_RIGHT_PADDING_RATIO = 0.13
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,19 @@ def _detect_plates(detector: cv2.dnn.Net, frame: np.ndarray):
     return [(boxes[int(index)], scores[int(index)]) for index in kept]
 
 
+def _crop_plate(frame: np.ndarray, box: list[int]) -> np.ndarray:
+    """Return a detected plate crop with room for the rightmost character.
+
+    Detector boxes can end slightly inside the physical plate. Extending only
+    the right edge avoids clipping a final character without adding the grille
+    and headlight detail that symmetric padding would introduce.
+    """
+    left, top, width, height = box
+    right_padding = max(1, round(width * _PLATE_CROP_RIGHT_PADDING_RATIO))
+    right = min(frame.shape[1], left + width + right_padding)
+    return frame[top:top + height, left:right].copy()
+
+
 def _read_plate(
     recognizer: cv2.dnn.Net,
     crop: np.ndarray,
@@ -155,7 +169,7 @@ def recognize_frame(
         cv2.putText(annotated, "NO PLATE DETECTED", (24, 56), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 180), 3)
         return RecognitionResult("UNREADABLE", 0.0, 0.0, None, annotated)
     (left, top, width, height), detector_confidence = max(detections, key=lambda item: item[1])
-    crop = frame[top:top + height, left:left + width].copy()
+    crop = _crop_plate(frame, [left, top, width, height])
     plate, ocr_confidence = _read_plate(recognizer, crop, characters)
     color = (0, 200, 255) if plate != "UNREADABLE" else (0, 0, 180)
     cv2.rectangle(annotated, (left, top), (left + width, top + height), color, 3)
