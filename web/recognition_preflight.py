@@ -7,17 +7,17 @@ import json
 from pathlib import Path
 
 from model_manifest import validate_model_manifest
+from recognition import _load_fast_plate_recognizer
 
 
 def run(manifest_path: Path) -> dict[str, str]:
     assets = validate_model_manifest(manifest_path)
     try:
         import cv2
-        for role in ("detector", "recognizer"):
-            path = assets[role]
-            network = cv2.dnn.readNet(str(path))
-            if network.empty():
-                raise ValueError(f"The {role} model loaded empty: {path}")
+        detector = cv2.dnn.readNet(str(assets["detector"]))
+        if detector.empty():
+            raise ValueError(f"The detector model loaded empty: {assets['detector']}")
+        _load_fast_plate_recognizer(assets["recognizer"], assets["recognizer_config"])
     except ImportError as error:
         raise ValueError("OpenCV is not installed for recognition.") from error
     return {role: str(path) for role, path in assets.items()}

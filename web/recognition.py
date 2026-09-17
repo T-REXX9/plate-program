@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 
 
 _MODEL_CACHE: dict[str, cv2.dnn.Net] = {}
+_FAST_PLATE_RECOGNIZER_CACHE: dict[tuple[str, str], Any] = {}
 _PLATE_CROP_RIGHT_PADDING_RATIO = 0.13
 
 
@@ -51,6 +53,27 @@ def _load_characters(path: str | None = None) -> tuple[str, ...]:
     if characters[-1] != " ":
         characters += (" ",)
     return characters
+
+
+def _fast_plate_config_path(model_path: str) -> Path | None:
+    path = Path(model_path)
+    config_path = path.with_name(f"{path.stem}_plate_config.yaml")
+    return config_path if config_path.is_file() else None
+
+
+def _load_fast_plate_recognizer(model_path: str, config_path: Path):
+    key = (str(Path(model_path).resolve()), str(config_path.resolve()))
+    recognizer = _FAST_PLATE_RECOGNIZER_CACHE.get(key)
+    if recognizer is None:
+        try:
+            from fast_plate_ocr import LicensePlateRecognizer
+        except ImportError as error:
+            raise ValueError("FastPlateOCR is not installed for plate recognition.") from error
+        recognizer = LicensePlateRecognizer(
+            onnx_model_path=key[0], plate_config_path=key[1], device="cpu"
+        )
+        _FAST_PLATE_RECOGNIZER_CACHE[key] = recognizer
+    return recognizer
 
 
 def _letterbox(frame: np.ndarray, size: int = 640):
@@ -152,6 +175,20 @@ def _read_plate(
     return (plate or "UNREADABLE", confidence / count if count else 0.0)
 
 
+def _read_plate_specific_model(model_path: str, config_path: Path, crop: np.ndarray) -> tuple[str, float]:
+    recognizer = _load_fast_plate_recognizer(model_path, config_path)
+    rgb_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    prediction = recognizer.run(rgb_crop, return_confidence=True)[0]
+    plate = _clean_plate(prediction.plate)
+    confidences = prediction.char_probs
+    confidence = (
+        sum(float(value) for value in confidences) / len(confidences)
+        if confidences is not None and len(confidences) > 0
+        else 0.0
+    )
+    return (plate or "UNREADABLE", confidence)
+
+
 def recognize_frame(
     frame_bytes: bytes,
     detector_model: str,
@@ -161,8 +198,6 @@ def recognize_frame(
     if frame is None or frame.size == 0:
         raise ValueError("The captured image is not a readable image.")
     detector = _load_model(detector_model)
-    recognizer = _load_model(recognizer_model)
-    characters = _load_characters()
     detections = _detect_plates(detector, frame)
     annotated = frame.copy()
     if not detections:
@@ -170,7 +205,13 @@ def recognize_frame(
         return RecognitionResult("UNREADABLE", 0.0, 0.0, None, annotated)
     (left, top, width, height), detector_confidence = max(detections, key=lambda item: item[1])
     crop = _crop_plate(frame, [left, top, width, height])
-    plate, ocr_confidence = _read_plate(recognizer, crop, characters)
+    fast_plate_config = _fast_plate_config_path(recognizer_model)
+    if fast_plate_config is not None:
+        plate, ocr_confidence = _read_plate_specific_model(recognizer_model, fast_plate_config, crop)
+    else:
+        recognizer = _load_model(recognizer_model)
+        characters = _load_characters()
+        plate, ocr_confidence = _read_plate(recognizer, crop, characters)
     color = (0, 200, 255) if plate != "UNREADABLE" else (0, 0, 180)
     cv2.rectangle(annotated, (left, top), (left + width, top + height), color, 3)
     cv2.putText(annotated, plate, (left, max(32, top - 10)), cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2)

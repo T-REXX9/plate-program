@@ -1341,7 +1341,7 @@ def camera_test(gate_id: int):
             "PLATE_DETECTOR_MODEL", str(PROJECT_DIR / "models" / "license_plate_detector.onnx")
         )
         recognizer_model = os.environ.get(
-            "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "en_PP-OCRv5_rec_mobile.onnx")
+            "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "cct_s_v2_global.onnx")
         )
         recognition = recognize_frame(frame, detector_model, recognizer_model)
         annotated_frame = encode_jpeg(recognition.annotated)
@@ -3330,7 +3330,7 @@ def camera_capture():
             "PLATE_DETECTOR_MODEL", str(PROJECT_DIR / "models" / "license_plate_detector.onnx")
         )
         recognizer_model = os.environ.get(
-            "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "en_PP-OCRv5_rec_mobile.onnx")
+            "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "cct_s_v2_global.onnx")
         )
         recognition = recognize_frame(frame, detector_model, recognizer_model)
         annotated_frame = encode_jpeg(recognition.annotated)

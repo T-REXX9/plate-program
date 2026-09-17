@@ -8,11 +8,18 @@
     "sha256": "ac1dce629f754e27c9a43d6130d8943194fc4a2c530c02c9a1def65896be9677"
   },
   "recognizer": {
-    "name": "en_PP-OCRv5_rec_mobile",
+    "name": "FastPlateOCR CCT-S v2 global",
     "format": "onnx",
-    "version": "PP-OCRv5 mobile English",
-    "path": "en_PP-OCRv5_rec_mobile.onnx",
-    "sha256": "d32c148a69be1050c997294b1a1963eef6ec6b0fb8ae395656dbacdcd922356a"
+    "version": "FastPlateOCR 1.1.0 CCT-S v2 global",
+    "path": "cct_s_v2_global.onnx",
+    "sha256": "384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b"
+  },
+  "recognizer_config": {
+    "name": "FastPlateOCR CCT-S v2 global configuration",
+    "format": "yaml",
+    "version": "FastPlateOCR 1.1.0 CCT-S v2 global",
+    "path": "cct_s_v2_global_plate_config.yaml",
+    "sha256": "0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6"
   },
   "dictionary": {
     "name": "en_PP-OCRv5_rec_mobile_dictionary",

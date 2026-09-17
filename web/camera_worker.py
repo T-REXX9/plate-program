@@ -164,7 +164,7 @@ def process_job(connection: DatabaseConnection, job: dict) -> None:
         "PLATE_DETECTOR_MODEL", str(PROJECT_DIR / "models" / "license_plate_detector.onnx")
     )
     recognizer_model = os.environ.get(
-        "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "en_PP-OCRv5_rec_mobile.onnx")
+        "PLATE_RECOGNIZER_MODEL", str(PROJECT_DIR / "models" / "cct_s_v2_global.onnx")
     )
     result = recognize_frame(frame_bytes, detector_model, recognizer_model)
     server_url = os.environ.get("PLATE_SERVER_URL", "http://127.0.0.1:8080")
